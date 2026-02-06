@@ -7,13 +7,22 @@ import torch
 import time
 import os
 import argparse
+import json
 from datetime import datetime
 
-from ex1_vanilla_cnn import VanillaCNN, get_model_summary
+from ex1_vanilla_cnn import VanillaCNN
 from cifar_data_loaders import load_cifar100_dataset
 from training_utils import ClassificationTrainer, get_criterion, get_optimizer, get_scheduler
 from visualization_utils import (plot_training_curves, plot_comparison_results, 
                            visualize_classification_predictions, generate_experiment_report)
+
+
+def save_experiment_results(all_results, save_dir):
+    """Save experiment results to JSON."""
+    output_path = os.path.join(save_dir, 'experiment_results.json')
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(all_results, f, indent=2, ensure_ascii=False)
+    print(f"✓ Results saved: {output_path}")
 
 
 def run_experiment(experiment_name, hyperparameters, train_loader, val_loader, 
@@ -46,12 +55,11 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     model = VanillaCNN(num_classes=100)
     
     # Setup training components
-    criterion = get_criterion(hyperparameters.get('criterion', 'cross_entropy'))
+    criterion = get_criterion(hyperparameters.get('criterion', 'crossentropy'))
     optimizer = get_optimizer(
         model,
         optimizer_name=hyperparameters.get('optimizer', 'sgd'),
-        learning_rate=hyperparameters.get('learning_rate', 0.01),
-        momentum=hyperparameters.get('momentum', 0.9),
+        lr=hyperparameters.get('learning_rate', 0.01),
         weight_decay=hyperparameters.get('weight_decay', 5e-4)
     )
     scheduler = get_scheduler(
@@ -61,13 +69,13 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     )
     
     # Initialize trainer
-    trainer = Trainer(model, device=device)
+    trainer = ClassificationTrainer(model, device=device)
     
     # Train
     start_time = time.time()
     history = trainer.train(
         train_loader, val_loader, criterion, optimizer,
-        num_epochs=num_epochs, scheduler=scheduler, verbose=True,
+        num_epochs=num_epochs, scheduler=scheduler,
         early_stopping_patience=10
     )
     training_time = time.time() - start_time
@@ -76,7 +84,9 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     test_loss, test_acc = trainer.test(test_loader, criterion)
     
     # Get sample predictions
-    images, predictions, labels = trainer.get_predictions(test_loader, num_samples=16)
+    images, labels, predictions, probabilities = trainer.get_predictions(
+        test_loader, num_samples=16
+    )
     
     # Plot training curves
     plot_training_curves(
@@ -86,9 +96,10 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     )
     
     # Plot sample predictions
-    plot_sample_predictions(
-        images, predictions, labels, CIFAR100_CLASSES,
-        num_samples=16,
+    class_names = [f'Class {i}' for i in range(100)]
+    visualize_classification_predictions(
+        images, labels, predictions, probabilities,
+        class_names=class_names,
         save_path=os.path.join(exp_dir, 'sample_predictions.png')
     )
     
@@ -96,8 +107,18 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     torch.save(model.state_dict(), os.path.join(exp_dir, 'model.pth'))
     
     # Prepare results
+    best_val_acc = max(history['val_acc']) if history.get('val_acc') else 0.0
     results = {
-        'val_acc': max(history['val_acc']),
+        'name': experiment_name,
+        'config': hyperparameters,
+        'metrics': {
+            'best_val_acc': best_val_acc,
+            'test_acc': test_acc,
+            'test_loss': test_loss,
+            'total_training_time': training_time,
+            'parameters': {'total': model.count_parameters()}
+        },
+        'val_acc': best_val_acc,
         'test_acc': test_acc,
         'test_loss': test_loss,
         'total_time': training_time,
@@ -158,14 +179,13 @@ def main():
     base_config = {
         'optimizer': 'sgd',
         'learning_rate': 0.01,
-        'momentum': 0.9,
         'weight_decay': 5e-4,
         'scheduler': 'cosine'
     }
     
     # CrossEntropyLoss (βασική επιλογή)
     exp_config = base_config.copy()
-    exp_config['criterion'] = 'cross_entropy'
+    exp_config['criterion'] = 'crossentropy'
     all_results['Loss_CrossEntropy'] = run_experiment(
         'Loss_CrossEntropy',
         exp_config,
@@ -182,9 +202,8 @@ def main():
     print("=" * 80)
     
     base_config = {
-        'criterion': 'cross_entropy',
+        'criterion': 'crossentropy',
         'learning_rate': 0.01,
-        'momentum': 0.9,
         'weight_decay': 5e-4,
         'scheduler': 'cosine'
     }
@@ -241,9 +260,8 @@ def main():
     print("=" * 80)
     
     base_config = {
-        'criterion': 'cross_entropy',
+        'criterion': 'crossentropy',
         'optimizer': 'sgd',
-        'momentum': 0.9,
         'weight_decay': 5e-4,
         'scheduler': 'cosine'
     }
@@ -274,7 +292,7 @@ def main():
     loss_results = {k: v for k, v in all_results.items() if k.startswith('Loss_')}
     if loss_results:
         plot_comparison_results(
-            loss_results,
+            list(loss_results.values()),
             save_path=os.path.join(results_dir, 'comparison_loss_functions.png')
         )
     
@@ -282,7 +300,7 @@ def main():
     opt_results = {k: v for k, v in all_results.items() if k.startswith('Optimizer_')}
     if opt_results:
         plot_comparison_results(
-            opt_results,
+            list(opt_results.values()),
             save_path=os.path.join(results_dir, 'comparison_optimizers.png')
         )
     
@@ -290,13 +308,13 @@ def main():
     lr_results = {k: v for k, v in all_results.items() if k.startswith('LR_')}
     if lr_results:
         plot_comparison_results(
-            lr_results,
+            list(lr_results.values()),
             save_path=os.path.join(results_dir, 'comparison_learning_rates.png')
         )
     
     # 4. Overall comparison
     plot_comparison_results(
-        all_results,
+        list(all_results.values()),
         save_path=os.path.join(results_dir, 'comparison_all_experiments.png')
     )
     
@@ -305,7 +323,7 @@ def main():
     
     # Generate text report
     generate_experiment_report(
-        all_results,
+        list(all_results.values()),
         save_path=os.path.join(results_dir, 'experiment_report.txt')
     )
     
