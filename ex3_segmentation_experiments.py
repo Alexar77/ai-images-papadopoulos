@@ -7,6 +7,8 @@ import torch
 import torch.nn as nn
 import time
 import os
+import json
+import argparse
 from datetime import datetime
 
 from ex3_sbd_data_loader import load_sbd_dataset
@@ -15,9 +17,16 @@ from training_utils import SegmentationTrainer, get_optimizer, get_scheduler
 from visualization_utils import (
     plot_segmentation_training_curves,
     visualize_segmentation,
-    plot_comparison_results,
     generate_experiment_report
 )
+
+
+def save_experiment_results(all_results, save_dir):
+    """Save experiment results to JSON."""
+    output_path = os.path.join(save_dir, 'experiment_results.json')
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(all_results, f, indent=2, ensure_ascii=False)
+    print(f"✓ Results saved: {output_path}")
 
 
 def run_segmentation_experiment(experiment_name, hyperparameters,
@@ -51,7 +60,7 @@ def run_segmentation_experiment(experiment_name, hyperparameters,
     optimizer = get_optimizer(
         model,
         optimizer_name=hyperparameters.get('optimizer', 'adam'),
-        learning_rate=hyperparameters.get('learning_rate', 0.001),
+        lr=hyperparameters.get('learning_rate', 0.001),
         weight_decay=hyperparameters.get('weight_decay', 1e-4)
     )
     scheduler = get_scheduler(
@@ -65,13 +74,12 @@ def run_segmentation_experiment(experiment_name, hyperparameters,
     start_time = time.time()
     history = trainer.train(
         train_loader, val_loader, criterion, optimizer,
-        num_epochs=num_epochs, scheduler=scheduler, num_classes=num_classes,
-        early_stopping_patience=7
+        num_epochs=num_epochs, scheduler=scheduler, num_classes=num_classes
     )
     training_time = time.time() - start_time
     
     # Get sample predictions
-    images, predictions, ground_truth = trainer.get_predictions(val_loader, num_samples=4)
+    images, ground_truth, predictions = trainer.get_predictions(val_loader, num_samples=4)
     
     # Visualizations
     plot_segmentation_training_curves(
@@ -79,21 +87,33 @@ def run_segmentation_experiment(experiment_name, hyperparameters,
         save_path=os.path.join(exp_dir, 'training_curves.png')
     )
     
-    plot_segmentation_results(
-        images, predictions, ground_truth,
+    visualize_segmentation(
+        images, ground_truth, predictions,
         save_path=os.path.join(exp_dir, 'segmentation_results.png'),
-        num_samples=4
+        title=f'{experiment_name} - Segmentation Results'
     )
     
     # Save model
     torch.save(model.state_dict(), os.path.join(exp_dir, 'model.pth'))
     
     # Results
+    best_val_miou = max(history['val_mean_iou']) if history.get('val_mean_iou') else 0.0
+    best_val_pixel_acc = max(history['val_pixel_acc']) if history.get('val_pixel_acc') else 0.0
     results = {
-        'val_miou': max(history['val_miou']),
-        'val_pixel_acc': max(history['val_pixel_acc']),
-        'test_acc': max(history['val_miou']),  # Using val_miou as primary metric
-        'val_acc': max(history['val_miou']),   # For compatibility with report generator
+        'name': experiment_name,
+        'config': hyperparameters,
+        'metrics': {
+            'best_val_acc': best_val_miou * 100.0,
+            'test_acc': best_val_miou * 100.0,
+            'best_val_miou': best_val_miou,
+            'best_val_pixel_acc': best_val_pixel_acc,
+            'total_training_time': training_time,
+            'parameters': {'total': model.count_parameters()}
+        },
+        'val_miou': best_val_miou * 100.0,
+        'val_pixel_acc': best_val_pixel_acc * 100.0,
+        'test_acc': best_val_miou * 100.0,
+        'val_acc': best_val_miou * 100.0,
         'total_time': training_time,
         'hyperparameters': hyperparameters,
         'history': history
@@ -109,12 +129,11 @@ def run_segmentation_experiment(experiment_name, hyperparameters,
 
 
 def main():
-    import argparse
-    
     parser = argparse.ArgumentParser(description='SBD Semantic Segmentation')
     parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=8, help='Batch size')
     parser.add_argument('--image_size', type=int, default=256, help='Image size')
+    parser.add_argument('--results_dir', type=str, default='results_segmentation', help='Results directory')
     parser.add_argument('--quick_test', action='store_true', help='Quick test (5 epochs)')
     args = parser.parse_args()
     
@@ -124,7 +143,7 @@ def main():
     
     # Setup
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_dir = os.path.join('results_segmentation', f'experiments_{timestamp}')
+    results_dir = os.path.join(args.results_dir, f'experiments_{timestamp}')
     os.makedirs(results_dir, exist_ok=True)
     
     print("=" * 80)
@@ -216,7 +235,7 @@ def main():
     # Save results
     save_experiment_results(all_results, save_dir=results_dir)
     generate_experiment_report(
-        all_results,
+        list(all_results.values()),
         save_path=os.path.join(results_dir, 'experiment_report.txt')
     )
     

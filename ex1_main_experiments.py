@@ -146,7 +146,7 @@ def main():
     args = parser.parse_args()
     
     if args.quick_test:
-        args.epochs = 5
+        args.epochs = 1
         print("\n*** QUICK TEST MODE: Running with only 5 epochs ***\n")
     
     # Create results directory
