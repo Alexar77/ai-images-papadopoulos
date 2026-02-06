@@ -5,6 +5,7 @@
 import torch
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
+from torchvision.ops import box_iou
 import os
 import json
 import argparse
@@ -17,8 +18,58 @@ from visualization_utils import (
     visualize_detections,
     plot_detection_training_curves,
     plot_comparison_results as plot_detection_comparison,
-    generate_experiment_report
 )
+
+
+@torch.no_grad()
+def evaluate_detection_accuracy(model, data_loader, device, score_threshold=0.5, iou_threshold=0.5):
+    """
+    Simple detection accuracy on validation set:
+    an image is correct if the top prediction matches a GT object with IoU >= threshold and same class.
+    """
+    model.eval()
+    total_images = 0
+    correct_images = 0
+
+    for images, targets in data_loader:
+        images_device = [img.to(device) for img in images]
+        outputs = model(images_device)
+
+        for pred, target in zip(outputs, targets):
+            gt_boxes = target['boxes']
+            gt_labels = target['labels']
+            if gt_boxes.numel() == 0:
+                continue
+
+            total_images += 1
+
+            if pred['boxes'].numel() == 0:
+                continue
+
+            keep = pred['scores'] >= score_threshold
+            if keep.sum().item() == 0:
+                continue
+
+            pred_boxes = pred['boxes'][keep].cpu()
+            pred_labels = pred['labels'][keep].cpu()
+            pred_scores = pred['scores'][keep].cpu()
+
+            top_idx = torch.argmax(pred_scores)
+            top_box = pred_boxes[top_idx].unsqueeze(0)
+            top_label = pred_labels[top_idx]
+
+            ious = box_iou(top_box, gt_boxes.cpu()).squeeze(0)
+            best_gt_idx = torch.argmax(ious)
+            best_iou = ious[best_gt_idx].item()
+            best_gt_label = gt_labels[best_gt_idx].cpu()
+
+            if best_iou >= iou_threshold and top_label == best_gt_label:
+                correct_images += 1
+
+    if total_images == 0:
+        return 0.0
+
+    return 100.0 * correct_images / total_images
 
 
 def run_detection_experiment(
@@ -29,7 +80,10 @@ def run_detection_experiment(
     optimizer_name='sgd',
     scheduler_name='step',
     experiment_name=None,
-    quick_test=False
+    quick_test=False,
+    pretrained=True,
+    data_dir='./data',
+    results_root='results_detection'
 ):
     """
     Εκτέλεση ενός detection experiment
@@ -54,6 +108,7 @@ def run_detection_experiment(
     print(f"Learning Rate: {lr}")
     print(f"Optimizer: {optimizer_name}")
     print(f"Scheduler: {scheduler_name}")
+    print(f"Pretrained: {pretrained}")
     print(f"Epochs: {num_epochs}")
     print(f"Batch Size: {batch_size}")
     print(f"Device: {device}")
@@ -61,12 +116,13 @@ def run_detection_experiment(
     
     # Load data
     train_loader, val_loader, num_classes = load_pet_detection_dataset(
+        data_dir=data_dir,
         batch_size=batch_size,
         num_workers=0  # Set to 0 for Windows compatibility
     )
     
     # Create model
-    model = get_detection_model(num_classes=num_classes, backbone=backbone, pretrained=True)
+    model = get_detection_model(num_classes=num_classes, backbone=backbone, pretrained=pretrained)
     
     # Optimizer
     params = [p for p in model.parameters() if p.requires_grad]
@@ -103,7 +159,7 @@ def run_detection_experiment(
     images, predictions = trainer.get_predictions(val_loader, num_samples=4, score_threshold=0.5)
     
     # Create results directory
-    results_dir = 'results_detection'
+    results_dir = results_root
     os.makedirs(results_dir, exist_ok=True)
     exp_dir = os.path.join(results_dir, experiment_name)
     os.makedirs(exp_dir, exist_ok=True)
@@ -122,9 +178,13 @@ def run_detection_experiment(
     
     # Calculate final metrics
     final_loss = history['train_loss'][-1]
+    detection_acc = evaluate_detection_accuracy(trainer.model, val_loader, device=device)
     
     # Save results
     results = {
+        'name': experiment_name,
+        'test_acc': detection_acc,
+        'val_acc': detection_acc,
         'experiment_name': experiment_name,
         'config': {
             'backbone': backbone,
@@ -133,9 +193,11 @@ def run_detection_experiment(
             'scheduler': scheduler_name,
             'num_epochs': num_epochs,
             'batch_size': batch_size,
+            'pretrained': pretrained,
             'device': device
         },
         'metrics': {
+            'detection_accuracy': detection_acc,
             'final_train_loss': final_loss,
             'best_train_loss': min(history['train_loss']),
             'final_classifier_loss': history['train_loss_classifier'][-1],
@@ -148,13 +210,14 @@ def run_detection_experiment(
         json.dump({k: v for k, v in results.items() if k != 'history'}, f, indent=4)
     
     print(f"\n✓ Results saved to: {exp_dir}")
+    print(f"✓ Detection Accuracy (IoU@0.5): {detection_acc:.2f}%")
     print(f"✓ Final Training Loss: {final_loss:.4f}")
     print("="*70 + "\n")
     
     return results
 
 
-def run_all_experiments(quick_test=False):
+def run_all_experiments(quick_test=False, pretrained=True, data_dir='./data', results_root='results_detection'):
     """Εκτέλεση όλων των experiments"""
     
     all_results = []
@@ -176,7 +239,10 @@ def run_all_experiments(quick_test=False):
             optimizer_name='sgd',
             scheduler_name='step',
             experiment_name=f"resnet50_lr{lr}",
-            quick_test=quick_test
+            quick_test=quick_test,
+            pretrained=pretrained,
+            data_dir=data_dir,
+            results_root=results_root
         )
         all_results.append(result)
     
@@ -195,7 +261,10 @@ def run_all_experiments(quick_test=False):
             optimizer_name='sgd',
             scheduler_name='step',
             experiment_name=f"{backbone}_baseline",
-            quick_test=quick_test
+            quick_test=quick_test,
+            pretrained=pretrained,
+            data_dir=data_dir,
+            results_root=results_root
         )
         all_results.append(result)
     
@@ -211,7 +280,10 @@ def run_all_experiments(quick_test=False):
             optimizer_name=opt,
             scheduler_name='cosine',
             experiment_name=f"resnet50_{opt}",
-            quick_test=quick_test
+            quick_test=quick_test,
+            pretrained=pretrained,
+            data_dir=data_dir,
+            results_root=results_root
         )
         all_results.append(result)
     
@@ -219,18 +291,9 @@ def run_all_experiments(quick_test=False):
     print("\n" + "="*70)
     print("Generating comparison plots...")
     
-    results_for_plot = [
-        {
-            'name': r['experiment_name'],
-            'history': r['history'],
-            'final_loss': r['metrics']['final_train_loss']
-        }
-        for r in all_results
-    ]
-    
     plot_detection_comparison(
-        results_for_plot,
-        save_path='results_detection/all_experiments_comparison.png'
+        all_results,
+        save_path=os.path.join(results_root, 'all_experiments_comparison.png')
     )
     
     # Save summary
@@ -247,7 +310,7 @@ def run_all_experiments(quick_test=False):
         ]
     }
     
-    with open('results_detection/experiments_summary.json', 'w') as f:
+    with open(os.path.join(results_root, 'experiments_summary.json'), 'w') as f:
         json.dump(summary, f, indent=4)
     
     # Print summary
@@ -257,9 +320,9 @@ def run_all_experiments(quick_test=False):
     print(f"Total experiments: {len(all_results)}\n")
     
     # Sort by final loss
-    sorted_results = sorted(all_results, key=lambda x: x['metrics']['final_train_loss'])
+    sorted_results = sorted(all_results, key=lambda x: x['metrics']['detection_accuracy'], reverse=True)
     
-    print("Results (sorted by final training loss):")
+    print("Results (sorted by detection accuracy IoU@0.5):")
     print("-" * 70)
     for i, result in enumerate(sorted_results, 1):
         config = result['config']
@@ -267,13 +330,14 @@ def run_all_experiments(quick_test=False):
         print(f"{i}. {result['experiment_name']}")
         print(f"   Backbone: {config['backbone']} | LR: {config['learning_rate']} | "
               f"Optimizer: {config['optimizer']}")
-        print(f"   Final Loss: {metrics['final_train_loss']:.4f} | "
+        print(f"   Det Acc (IoU@0.5): {metrics['detection_accuracy']:.2f}% | "
+              f"Final Loss: {metrics['final_train_loss']:.4f} | "
               f"Best Loss: {metrics['best_train_loss']:.4f}")
         print()
     
     print("="*70)
-    print(f"✓ All results saved to: results_detection/")
-    print(f"✓ Summary saved to: results_detection/experiments_summary.json")
+    print(f"✓ All results saved to: {results_root}/")
+    print(f"✓ Summary saved to: {results_root}/experiments_summary.json")
     print("="*70 + "\n")
 
 
@@ -288,6 +352,10 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=0.005)
     parser.add_argument('--epochs', type=int, default=5)
     parser.add_argument('--batch_size', type=int, default=4)
+    parser.add_argument('--results_dir', type=str, default='results_detection')
+    parser.add_argument('--data_dir', type=str, default='./data')
+    parser.add_argument('--no_pretrained', action='store_true',
+                       help='Disable pretrained weights')
     
     args = parser.parse_args()
     
@@ -298,8 +366,16 @@ if __name__ == "__main__":
             lr=args.lr,
             num_epochs=args.epochs,
             batch_size=args.batch_size,
-            quick_test=args.quick_test
+            quick_test=args.quick_test,
+            pretrained=not args.no_pretrained,
+            data_dir=args.data_dir,
+            results_root=args.results_dir
         )
     else:
         # Run all experiments
-        run_all_experiments(quick_test=args.quick_test)
+        run_all_experiments(
+            quick_test=args.quick_test,
+            pretrained=not args.no_pretrained,
+            data_dir=args.data_dir,
+            results_root=args.results_dir
+        )
