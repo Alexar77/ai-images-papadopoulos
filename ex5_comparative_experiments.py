@@ -16,6 +16,7 @@ from ex5_cnn_models import get_cnn_model
 from ex5_vit_model import get_vit_model
 from training_utils import ClassificationTrainer, count_parameters
 from visualization_utils import (
+    plot_training_curves,
     plot_comparative_training_curves,
     plot_model_comparison_bars,
     visualize_classification_predictions as visualize_predictions,
@@ -34,7 +35,8 @@ def run_comparative_experiment(
     scheduler_name='cosine',
     image_size=32,
     experiment_name=None,
-    quick_test=False
+    quick_test=False,
+    results_root='results_comparative'
 ):
     """
     Εκτέλεση ενός comparative experiment
@@ -101,7 +103,7 @@ def run_comparative_experiment(
     if scheduler_name == 'cosine':
         scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
     elif scheduler_name == 'step':
-        scheduler = StepLR(optimizer, step_size=num_epochs//3, gamma=0.1)
+        scheduler = StepLR(optimizer, step_size=max(1, num_epochs // 3), gamma=0.1)
     else:
         scheduler = None
     
@@ -118,7 +120,7 @@ def run_comparative_experiment(
     )
     
     # Test
-    trainer.test(test_loader, criterion)
+    test_loss, test_acc = trainer.test(test_loader, criterion)
     
     # Get sample predictions
     print("\n" + "="*70)
@@ -128,12 +130,18 @@ def run_comparative_experiment(
     )
     
     # Create results directory
-    results_dir = 'results_comparative'
+    results_dir = results_root
     os.makedirs(results_dir, exist_ok=True)
     exp_dir = os.path.join(results_dir, experiment_name)
     os.makedirs(exp_dir, exist_ok=True)
     
     # Save visualizations
+    plot_training_curves(
+        history,
+        save_path=os.path.join(exp_dir, 'training_curves.png'),
+        title=f"Training Curves - {experiment_name}"
+    )
+
     visualize_predictions(
         images, labels, predictions, probabilities,
         class_names=CIFAR10_CLASSES,
@@ -143,6 +151,9 @@ def run_comparative_experiment(
     
     # Save results
     results = {
+        'name': experiment_name,
+        'test_acc': test_acc,
+        'val_acc': max(history['val_acc']) if history.get('val_acc') else 0.0,
         'experiment_name': experiment_name,
         'config': {
             'architecture': architecture,
@@ -156,7 +167,8 @@ def run_comparative_experiment(
             'device': device
         },
         'metrics': {
-            'test_acc': history['test_acc'],
+            'test_acc': test_acc,
+            'test_loss': test_loss,
             'best_val_acc': max(history['val_acc']),
             'final_train_loss': history['train_loss'][-1],
             'final_val_loss': history['val_loss'][-1],
@@ -173,13 +185,13 @@ def run_comparative_experiment(
         json.dump(json_results, f, indent=4)
     
     print(f"\n✓ Results saved to: {exp_dir}")
-    print(f"✓ Test Accuracy: {history['test_acc']:.2f}%")
+    print(f"✓ Test Accuracy: {test_acc:.2f}%")
     print("="*70 + "\n")
     
     return results
 
 
-def run_all_experiments(quick_test=False):
+def run_all_experiments(quick_test=False, results_root='results_comparative'):
     """Εκτέλεση όλων των comparative experiments"""
     
     all_results = []
@@ -211,7 +223,8 @@ def run_all_experiments(quick_test=False):
             scheduler_name='cosine',
             image_size=config['image_size'],
             experiment_name=f"cnn_{config['model_name']}_baseline",
-            quick_test=quick_test
+            quick_test=quick_test,
+            results_root=results_root
         )
         all_results.append(result)
     
@@ -237,7 +250,8 @@ def run_all_experiments(quick_test=False):
             scheduler_name='cosine',
             image_size=224,  # ViT needs larger images
             experiment_name=f"vit_{config['model_name']}_baseline",
-            quick_test=quick_test
+            quick_test=quick_test,
+            results_root=results_root
         )
         all_results.append(result)
     
@@ -259,7 +273,8 @@ def run_all_experiments(quick_test=False):
             scheduler_name='cosine',
             image_size=32,
             experiment_name=f"cnn_resnet18_lr{lr}",
-            quick_test=quick_test
+            quick_test=quick_test,
+            results_root=results_root
         )
         all_results.append(result)
     
@@ -274,7 +289,8 @@ def run_all_experiments(quick_test=False):
         scheduler_name='cosine',
         image_size=224,
         experiment_name=f"vit_tiny_adam",
-        quick_test=quick_test
+        quick_test=quick_test,
+        results_root=results_root
     )
     all_results.append(result)
     
@@ -287,19 +303,19 @@ def run_all_experiments(quick_test=False):
     # Training curves comparison
     plot_comparative_training_curves(
         results=all_results,
-        save_path='results_comparative/all_training_curves.png'
+        save_path=os.path.join(results_root, 'all_training_curves.png')
     )
     
     # Model comparison bars
     plot_model_comparison_bars(
         results=all_results,
-        save_path='results_comparative/model_comparison.png'
+        save_path=os.path.join(results_root, 'model_comparison.png')
     )
     
     # Generate detailed report
     generate_comparative_report(
         results=all_results,
-        save_path='results_comparative/comparative_report.txt'
+        save_path=os.path.join(results_root, 'comparative_report.txt')
     )
     
     # Save summary JSON
@@ -318,7 +334,7 @@ def run_all_experiments(quick_test=False):
         ]
     }
     
-    with open('results_comparative/experiments_summary.json', 'w') as f:
+    with open(os.path.join(results_root, 'experiments_summary.json'), 'w') as f:
         json.dump(summary, f, indent=4)
     
     # ============================================================================
@@ -361,8 +377,8 @@ def run_all_experiments(quick_test=False):
     print(f"   Parameters: {best_result['metrics']['parameters']['total_millions']:.1f}M")
     
     print("\n" + "="*70)
-    print(f"✓ All results saved to: results_comparative/")
-    print(f"✓ Detailed report: results_comparative/comparative_report.txt")
+    print(f"✓ All results saved to: {results_root}/")
+    print(f"✓ Detailed report: {results_root}/comparative_report.txt")
     print("="*70 + "\n")
 
 
@@ -378,6 +394,7 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--epochs', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--results_dir', type=str, default='results_comparative')
     
     args = parser.parse_args()
     
@@ -389,8 +406,9 @@ if __name__ == "__main__":
             lr=args.lr,
             num_epochs=args.epochs,
             batch_size=args.batch_size,
-            quick_test=args.quick_test
+            quick_test=args.quick_test,
+            results_root=args.results_dir
         )
     else:
         # Run all experiments
-        run_all_experiments(quick_test=args.quick_test)
+        run_all_experiments(quick_test=args.quick_test, results_root=args.results_dir)

@@ -1,0 +1,32 @@
+{
+    "name": "smoke_ex5_synth",
+    "test_acc": 4.6875,
+    "val_acc": 9.375,
+    "experiment_name": "smoke_ex5_synth",
+    "config": {
+        "architecture": "cnn",
+        "model_name": "resnet18",
+        "image_size": 32,
+        "learning_rate": 0.001,
+        "optimizer": "adam",
+        "scheduler": "step",
+        "num_epochs": 1,
+        "batch_size": 16,
+        "device": "cpu"
+    },
+    "metrics": {
+        "test_acc": 4.6875,
+        "test_loss": 3.2130099534988403,
+        "best_val_acc": 9.375,
+        "final_train_loss": 2.5207138657569885,
+        "final_val_loss": 3.04561984539032,
+        "parameters": {
+            "total": 11173962,
+            "trainable": 11173962,
+            "total_millions": 11.173962,
+            "trainable_millions": 11.173962
+        },
+        "total_training_time": 1.1968929767608643,
+        "inference_time": 0.10230302810668945
+    }
+}
