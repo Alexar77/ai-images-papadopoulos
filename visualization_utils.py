@@ -953,6 +953,143 @@ def plot_detection_training_curves(history, save_path=None):
     plt.close()
 
 
+def plot_ex4_accuracy_overview(results, save_path=None):
+    """Ex4: Main bar chart with detection accuracy (IoU@0.5) per experiment."""
+    results_list = _to_result_list(results)
+    results_list = sorted(results_list, key=lambda r: r.get('test_acc', 0), reverse=True)
+
+    names = [r['name'] for r in results_list]
+    accs = [r.get('test_acc', 0) for r in results_list]
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    bars = ax.bar(names, accs, color='steelblue', alpha=0.9)
+    ax.set_title('Ex4 Overview - Detection Accuracy (IoU@0.5)', fontweight='bold')
+    ax.set_ylabel('Detection Accuracy (%)')
+    ax.set_ylim(0, 100)
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+    for i, bar in enumerate(bars):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                f"{accs[i]:.2f}%", ha='center', va='bottom', fontsize=9)
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex4 accuracy overview saved: {save_path}")
+    plt.close()
+
+
+def plot_ex4_total_loss_curves(results, save_path=None):
+    """Ex4: Total training loss curves for all experiments."""
+    results_list = _to_result_list(results)
+    if not results_list:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for result in results_list:
+        history = result.get('history', {})
+        curve = history.get('train_loss', [])
+        if not curve:
+            continue
+        epochs = range(1, len(curve) + 1)
+        ax.plot(epochs, curve, linewidth=2, label=result['name'])
+
+    ax.set_title('Ex4 Total Training Loss Curves', fontweight='bold')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Loss')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex4 total-loss curves saved: {save_path}")
+    plt.close()
+
+
+def plot_ex4_best_loss_components(results, save_path=None):
+    """Ex4: Loss components for the best experiment by detection accuracy."""
+    results_list = _to_result_list(results)
+    if not results_list:
+        return
+
+    best = max(results_list, key=lambda r: r.get('test_acc', r.get('metrics', {}).get('detection_accuracy', 0)))
+    history = best.get('history', {})
+    epochs = range(1, len(history.get('train_loss', [])) + 1)
+    if len(list(epochs)) == 0:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(epochs, history['train_loss_classifier'], linewidth=2, label='Classifier')
+    ax.plot(epochs, history['train_loss_box_reg'], linewidth=2, label='Box Regression')
+    ax.plot(epochs, history['train_loss_objectness'], linewidth=2, label='Objectness')
+    ax.plot(epochs, history['train_loss_rpn_box_reg'], linewidth=2, label='RPN Box Reg')
+    ax.set_title(f"Ex4 Best Run Loss Components - {best['name']}", fontweight='bold')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Loss')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex4 best-run loss components saved: {save_path}")
+    plt.close()
+
+
+def plot_ex4_lr_vs_accuracy(results, save_path=None):
+    """Ex4: Learning rate against detection accuracy."""
+    results_list = _to_result_list(results)
+    lr_results = [r for r in results_list if 'learning_rate' in r.get('config', {})]
+    if not lr_results:
+        return
+
+    lrs = [r['config']['learning_rate'] for r in lr_results]
+    accs = [r.get('test_acc', r.get('metrics', {}).get('detection_accuracy', 0)) for r in lr_results]
+    sort_idx = np.argsort(lrs)
+    lrs = np.array(lrs)[sort_idx]
+    accs = np.array(accs)[sort_idx]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(lrs, accs, marker='o', linewidth=2, color='teal')
+    ax.set_xscale('log')
+    ax.set_title('Ex4 Learning Rate vs Detection Accuracy', fontweight='bold')
+    ax.set_xlabel('Learning Rate (log scale)')
+    ax.set_ylabel('Detection Accuracy (%)')
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex4 learning-rate-vs-accuracy plot saved: {save_path}")
+    plt.close()
+
+
+def plot_ex4_time_vs_accuracy(results, save_path=None):
+    """Ex4: Training-time vs detection-accuracy scatter."""
+    results_list = _to_result_list(results)
+    names = [r['name'] for r in results_list]
+    times = [sum(r.get('history', {}).get('epoch_times', [])) for r in results_list]
+    accs = [r.get('test_acc', r.get('metrics', {}).get('detection_accuracy', 0)) for r in results_list]
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.scatter(times, accs, s=80, c='darkorange', alpha=0.85)
+    for i, name in enumerate(names):
+        ax.annotate(name, (times[i], accs[i]), textcoords='offset points', xytext=(5, 5), fontsize=8)
+
+    ax.set_title('Ex4 Efficiency Tradeoff - Training Time vs Detection Accuracy', fontweight='bold')
+    ax.set_xlabel('Total Training Time (seconds)')
+    ax.set_ylabel('Detection Accuracy (%)')
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex4 time-vs-accuracy plot saved: {save_path}")
+    plt.close()
+
+
 # ============================================================================
 # COMPARATIVE VISUALIZATION (Ex5)
 # ============================================================================

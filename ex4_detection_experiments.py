@@ -9,6 +9,7 @@ from torchvision.ops import box_iou
 import os
 import json
 import argparse
+import shutil
 from datetime import datetime
 
 from pet_data_loaders import load_pet_detection_dataset
@@ -18,6 +19,11 @@ from visualization_utils import (
     visualize_detections,
     plot_detection_training_curves,
     plot_comparison_results as plot_detection_comparison,
+    plot_ex4_accuracy_overview,
+    plot_ex4_total_loss_curves,
+    plot_ex4_best_loss_components,
+    plot_ex4_lr_vs_accuracy,
+    plot_ex4_time_vs_accuracy,
 )
 
 
@@ -295,6 +301,36 @@ def run_all_experiments(quick_test=False, pretrained=True, data_dir='./data', re
         all_results,
         save_path=os.path.join(results_root, 'all_experiments_comparison.png')
     )
+
+    # Report-focused Ex4 figures (5-6 key plots)
+    plot_ex4_accuracy_overview(
+        all_results,
+        save_path=os.path.join(results_root, 'report_01_detection_accuracy_overview.png')
+    )
+    plot_ex4_total_loss_curves(
+        all_results,
+        save_path=os.path.join(results_root, 'report_02_total_loss_curves.png')
+    )
+    plot_ex4_best_loss_components(
+        all_results,
+        save_path=os.path.join(results_root, 'report_03_best_loss_components.png')
+    )
+    plot_ex4_lr_vs_accuracy(
+        all_results,
+        save_path=os.path.join(results_root, 'report_04_lr_vs_accuracy.png')
+    )
+    plot_ex4_time_vs_accuracy(
+        all_results,
+        save_path=os.path.join(results_root, 'report_05_time_vs_accuracy.png')
+    )
+
+    # Best qualitative detection panel
+    best_result = max(all_results, key=lambda x: x.get('test_acc', x['metrics']['detection_accuracy']))
+    src_panel = os.path.join(results_root, best_result['experiment_name'], 'detections.png')
+    dst_panel = os.path.join(results_root, 'report_06_best_detection_panel.png')
+    if os.path.exists(src_panel):
+        shutil.copyfile(src_panel, dst_panel)
+        print(f"✓ Ex4 best detection panel saved: {dst_panel}")
     
     # Save summary
     summary = {
