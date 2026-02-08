@@ -654,6 +654,175 @@ def plot_segmentation_training_curves(history, save_path=None):
     plt.close()
 
 
+def plot_ex3_miou_overview(results, save_path=None):
+    """Ex3: Main bar chart with best validation mIoU per experiment."""
+    results_list = _to_result_list(results)
+    results_list = sorted(results_list, key=lambda r: r.get('val_miou', 0), reverse=True)
+
+    names = [r['name'] for r in results_list]
+    mious = [r.get('val_miou', 0) for r in results_list]
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    bars = ax.bar(names, mious, color='teal', alpha=0.9)
+    ax.set_title('Ex3 Overview - Best Validation mIoU by Experiment', fontweight='bold')
+    ax.set_ylabel('mIoU (%)')
+    ax.set_ylim(0, 100)
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+    for i, bar in enumerate(bars):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                f"{mious[i]:.2f}%", ha='center', va='bottom', fontsize=9)
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex3 mIoU overview saved: {save_path}")
+    plt.close()
+
+
+def plot_ex3_optimizer_miou_curves(results, save_path=None):
+    """Ex3: Validation mIoU curves for optimizer comparison experiments."""
+    results_list = _to_result_list(results)
+    optimizer_results = [r for r in results_list if r['name'].startswith('Optimizer_')]
+    if not optimizer_results:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for result in optimizer_results:
+        history = result['history']
+        epochs = range(1, len(history['val_mean_iou']) + 1)
+        ax.plot(epochs, np.array(history['val_mean_iou']) * 100.0, linewidth=2, label=result['name'])
+
+    ax.set_title('Ex3 Optimizers - Validation mIoU Curves', fontweight='bold')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Validation mIoU (%)')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex3 optimizer mIoU curves saved: {save_path}")
+    plt.close()
+
+
+def plot_ex3_optimizer_pixel_acc_curves(results, save_path=None):
+    """Ex3: Validation pixel-accuracy curves for optimizer comparison experiments."""
+    results_list = _to_result_list(results)
+    optimizer_results = [r for r in results_list if r['name'].startswith('Optimizer_')]
+    if not optimizer_results:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for result in optimizer_results:
+        history = result['history']
+        epochs = range(1, len(history['val_pixel_acc']) + 1)
+        ax.plot(epochs, np.array(history['val_pixel_acc']) * 100.0, linewidth=2, label=result['name'])
+
+    ax.set_title('Ex3 Optimizers - Validation Pixel Accuracy Curves', fontweight='bold')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Validation Pixel Accuracy (%)')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex3 optimizer pixel-accuracy curves saved: {save_path}")
+    plt.close()
+
+
+def plot_ex3_lr_val_loss_curves(results, save_path=None):
+    """Ex3: Validation loss curves for learning-rate experiments."""
+    results_list = _to_result_list(results)
+    lr_results = [r for r in results_list if r['name'].startswith('LearningRate_') or r['name'].startswith('LR_')]
+    if not lr_results:
+        return
+
+    lr_results = sorted(
+        lr_results,
+        key=lambda r: r.get('config', {}).get('learning_rate', r.get('hyperparameters', {}).get('learning_rate', 0))
+    )
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for result in lr_results:
+        history = result['history']
+        lr = result.get('config', {}).get('learning_rate', result.get('hyperparameters', {}).get('learning_rate', 'NA'))
+        epochs = range(1, len(history['val_loss']) + 1)
+        ax.plot(epochs, history['val_loss'], linewidth=2, label=f'lr={lr}')
+
+    ax.set_title('Ex3 Learning Rates - Validation Loss Curves', fontweight='bold')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Validation Loss')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex3 learning-rate val-loss curves saved: {save_path}")
+    plt.close()
+
+
+def plot_ex3_time_vs_miou(results, save_path=None):
+    """Ex3: Training-time vs best-mIoU scatter."""
+    results_list = _to_result_list(results)
+    names = [r['name'] for r in results_list]
+    times = [r.get('total_time', r.get('metrics', {}).get('total_training_time', 0)) for r in results_list]
+    mious = [r.get('val_miou', r.get('metrics', {}).get('best_val_miou', 0) * 100.0) for r in results_list]
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.scatter(times, mious, s=80, c='darkorange', alpha=0.85)
+    for i, name in enumerate(names):
+        ax.annotate(name, (times[i], mious[i]), textcoords='offset points', xytext=(5, 5), fontsize=8)
+
+    ax.set_title('Ex3 Efficiency Tradeoff - Training Time vs Best mIoU', fontweight='bold')
+    ax.set_xlabel('Total Training Time (seconds)')
+    ax.set_ylabel('Best Validation mIoU (%)')
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex3 time-vs-mIoU plot saved: {save_path}")
+    plt.close()
+
+
+def plot_ex3_lr_vs_miou(results, save_path=None):
+    """Ex3: Learning rate against best validation mIoU."""
+    results_list = _to_result_list(results)
+    lr_results = [r for r in results_list if r['name'].startswith('LearningRate_') or r['name'].startswith('LR_')]
+    if not lr_results:
+        return
+
+    lrs = [r.get('config', {}).get('learning_rate', r.get('hyperparameters', {}).get('learning_rate', np.nan)) for r in lr_results]
+    mious = [r.get('val_miou', 0) for r in lr_results]
+
+    valid = [(lr, miou) for lr, miou in zip(lrs, mious) if not np.isnan(lr)]
+    if not valid:
+        return
+
+    lrs, mious = zip(*valid)
+    sort_idx = np.argsort(lrs)
+    lrs = np.array(lrs)[sort_idx]
+    mious = np.array(mious)[sort_idx]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(lrs, mious, marker='o', linewidth=2, color='purple')
+    ax.set_xscale('log')
+    ax.set_title('Ex3 Learning Rate vs Best mIoU', fontweight='bold')
+    ax.set_xlabel('Learning Rate (log scale)')
+    ax.set_ylabel('Best Validation mIoU (%)')
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex3 learning-rate-vs-mIoU plot saved: {save_path}")
+    plt.close()
+
+
 # ============================================================================
 # DETECTION VISUALIZATION (Ex4)
 # ============================================================================

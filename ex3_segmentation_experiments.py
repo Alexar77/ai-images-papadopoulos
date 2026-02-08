@@ -9,6 +9,7 @@ import time
 import os
 import json
 import argparse
+import shutil
 from datetime import datetime
 
 from ex3_sbd_data_loader import load_sbd_dataset
@@ -17,7 +18,13 @@ from training_utils import SegmentationTrainer, get_optimizer, get_scheduler
 from visualization_utils import (
     plot_segmentation_training_curves,
     visualize_segmentation,
-    generate_experiment_report
+    generate_experiment_report,
+    plot_ex3_miou_overview,
+    plot_ex3_optimizer_miou_curves,
+    plot_ex3_optimizer_pixel_acc_curves,
+    plot_ex3_lr_val_loss_curves,
+    plot_ex3_time_vs_miou,
+    plot_ex3_lr_vs_miou
 )
 
 
@@ -239,6 +246,41 @@ def main():
         list(all_results.values()),
         save_path=os.path.join(results_dir, 'experiment_report.txt')
     )
+
+    # Report-focused Ex3 figures (5-6 key plots)
+    plot_ex3_miou_overview(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_01_miou_overview.png')
+    )
+    plot_ex3_optimizer_miou_curves(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_02_optimizer_miou_curves.png')
+    )
+    plot_ex3_optimizer_pixel_acc_curves(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_03_optimizer_pixelacc_curves.png')
+    )
+    plot_ex3_lr_val_loss_curves(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_04_lr_val_loss_curves.png')
+    )
+    plot_ex3_time_vs_miou(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_05_time_vs_miou.png')
+    )
+    plot_ex3_lr_vs_miou(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_06_lr_vs_miou.png')
+    )
+
+    # Best qualitative panel (Input / GT / Prediction) copied from best run
+    best_result = max(all_results.values(), key=lambda x: x['val_miou'])
+    best_exp_name = best_result['name']
+    src_panel = os.path.join(results_dir, best_exp_name, 'segmentation_results.png')
+    dst_panel = os.path.join(results_dir, 'report_07_best_segmentation_panel.png')
+    if os.path.exists(src_panel):
+        shutil.copyfile(src_panel, dst_panel)
+        print(f"✓ Ex3 best segmentation panel saved: {dst_panel}")
     
     # Print summary
     print("\n" + "=" * 80)
