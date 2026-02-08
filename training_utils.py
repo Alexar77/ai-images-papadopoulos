@@ -10,11 +10,45 @@ from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR, ReduceLROnPlatea
 from tqdm import tqdm
 import time
 import numpy as np
+import copy
 
 
 # ============================================================================
 # OPTIMIZERS & SCHEDULERS (Shared)
 # ============================================================================
+
+
+class EarlyStoppingController:
+    """Shared early stopping controller for all trainers."""
+
+    def __init__(self, patience=None, mode='max', min_delta=0.0):
+        self.patience = patience
+        self.mode = mode
+        self.min_delta = min_delta
+        self.best_value = None
+        self.best_state = None
+        self.patience_counter = 0
+
+    def _is_improvement(self, value):
+        if self.best_value is None:
+            return True
+        if self.mode == 'max':
+            return value > self.best_value + self.min_delta
+        if self.mode == 'min':
+            return value < self.best_value - self.min_delta
+        raise ValueError(f"Unknown early-stopping mode: {self.mode}")
+
+    def update(self, value, model):
+        improved = self._is_improvement(value)
+        if improved:
+            self.best_value = value
+            self.best_state = copy.deepcopy(model.state_dict())
+            self.patience_counter = 0
+            return improved, False
+
+        self.patience_counter += 1
+        should_stop = bool(self.patience and self.patience_counter >= self.patience)
+        return improved, should_stop
 
 def get_optimizer(model, optimizer_name='adam', lr=0.001, weight_decay=0.0):
     """Factory function for optimizers"""
@@ -153,10 +187,11 @@ class ClassificationTrainer:
         print(f"\nΈναρξη εκπαίδευσης για {num_epochs} epochs...")
         print(f"Device: {self.device}")
         print("=" * 70)
-        
-        best_val_acc = 0
-        best_model_state = None
-        patience_counter = 0
+
+        early_stop = EarlyStoppingController(
+            patience=early_stopping_patience,
+            mode='max'
+        )
         
         for epoch in range(num_epochs):
             start_time = time.time()
@@ -170,12 +205,7 @@ class ClassificationTrainer:
                 else:
                     scheduler.step()
             
-            if val_acc > best_val_acc:
-                best_val_acc = val_acc
-                best_model_state = self.model.state_dict().copy()
-                patience_counter = 0
-            else:
-                patience_counter += 1
+            _, should_stop = early_stop.update(val_acc, self.model)
             
             epoch_time = time.time() - start_time
             self.history['train_loss'].append(train_loss)
@@ -191,14 +221,15 @@ class ClassificationTrainer:
                 print(f"Learning Rate: {scheduler.get_last_lr()[0]:.6f}")
             print("-" * 70)
             
-            if early_stopping_patience and patience_counter >= early_stopping_patience:
-                print(f"\n⚠ Early stopping triggered after {epoch+1} epochs")
+            if should_stop:
+                print(f"\n⚠ Early stopping triggered after {epoch+1} epochs (patience: {early_stopping_patience})")
                 break
-        
-        if best_model_state is not None:
-            self.model.load_state_dict(best_model_state)
+
+        if early_stop.best_state is not None:
+            self.model.load_state_dict(early_stop.best_state)
         
         print(f"\nΕκπαίδευση ολοκληρώθηκε!")
+        best_val_acc = early_stop.best_value if early_stop.best_value is not None else 0.0
         print(f"Best Validation Accuracy: {best_val_acc:.2f}%")
         print("=" * 70)
         
@@ -369,16 +400,19 @@ class SegmentationTrainer:
         optimizer,
         num_epochs=10,
         scheduler=None,
-        num_classes=21
+        num_classes=21,
+        early_stopping_patience=None
     ):
         """Full training loop"""
         
         print(f"\nΈναρξη εκπαίδευσης για {num_epochs} epochs...")
         print(f"Device: {self.device}")
         print("=" * 70)
-        
-        best_iou = 0
-        best_model_state = None
+
+        early_stop = EarlyStoppingController(
+            patience=early_stopping_patience,
+            mode='max'
+        )
         
         for epoch in range(num_epochs):
             start_time = time.time()
@@ -396,9 +430,7 @@ class SegmentationTrainer:
                 else:
                     scheduler.step()
             
-            if val_iou > best_iou:
-                best_iou = val_iou
-                best_model_state = self.model.state_dict().copy()
+            _, should_stop = early_stop.update(val_iou, self.model)
             
             epoch_time = time.time() - start_time
             self.history['train_loss'].append(train_loss)
@@ -415,11 +447,16 @@ class SegmentationTrainer:
             if scheduler and hasattr(scheduler, 'get_last_lr'):
                 print(f"Learning Rate: {scheduler.get_last_lr()[0]:.6f}")
             print("-" * 70)
-        
-        if best_model_state:
-            self.model.load_state_dict(best_model_state)
+
+            if should_stop:
+                print(f"\n⚠ Early stopping triggered after {epoch+1} epochs (patience: {early_stopping_patience})")
+                break
+
+        if early_stop.best_state is not None:
+            self.model.load_state_dict(early_stop.best_state)
         
         print(f"\nΕκπαίδευση ολοκληρώθηκε!")
+        best_iou = early_stop.best_value if early_stop.best_value is not None else 0.0
         print(f"Best Validation mIoU: {best_iou:.4f}")
         print("=" * 70)
         
@@ -532,10 +569,11 @@ class DetectionTrainer:
         print(f"\nΈναρξη εκπαίδευσης για {num_epochs} epochs...")
         print(f"Device: {self.device}")
         print("=" * 70)
-        
-        best_loss = float('inf')
-        best_model_state = None
-        patience_counter = 0
+
+        early_stop = EarlyStoppingController(
+            patience=early_stopping_patience,
+            mode='min'
+        )
         
         for epoch in range(num_epochs):
             start_time = time.time()
@@ -545,12 +583,7 @@ class DetectionTrainer:
             if scheduler is not None:
                 scheduler.step()
             
-            if losses['total_loss'] < best_loss:
-                best_loss = losses['total_loss']
-                best_model_state = self.model.state_dict().copy()
-                patience_counter = 0  # Reset patience counter
-            else:
-                patience_counter += 1
+            _, should_stop = early_stop.update(losses['total_loss'], self.model)
             
             epoch_time = time.time() - start_time
             self.history['train_loss'].append(losses['total_loss'])
@@ -568,15 +601,15 @@ class DetectionTrainer:
                 print(f"Learning Rate: {scheduler.get_last_lr()[0]:.6f}")
             print("-" * 70)
             
-            # Early stopping check
-            if early_stopping_patience and patience_counter >= early_stopping_patience:
+            if should_stop:
                 print(f"\n⚠️ Early stopping triggered after {epoch+1} epochs (patience: {early_stopping_patience})")
                 break
-        
-        if best_model_state:
-            self.model.load_state_dict(best_model_state)
+
+        if early_stop.best_state is not None:
+            self.model.load_state_dict(early_stop.best_state)
         
         print(f"\nΕκπαίδευση ολοκληρώθηκε!")
+        best_loss = early_stop.best_value if early_stop.best_value is not None else float('inf')
         print(f"Best Training Loss: {best_loss:.4f}")
         print("=" * 70)
         

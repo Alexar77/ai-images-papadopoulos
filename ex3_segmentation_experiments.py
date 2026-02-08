@@ -74,7 +74,8 @@ def run_segmentation_experiment(experiment_name, hyperparameters,
     start_time = time.time()
     history = trainer.train(
         train_loader, val_loader, criterion, optimizer,
-        num_epochs=num_epochs, scheduler=scheduler, num_classes=num_classes
+        num_epochs=num_epochs, scheduler=scheduler, num_classes=num_classes,
+        early_stopping_patience=hyperparameters.get('early_stopping_patience', 7)
     )
     training_time = time.time() - start_time
     
