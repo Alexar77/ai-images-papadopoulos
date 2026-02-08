@@ -368,6 +368,185 @@ def plot_ex1_learning_rate_vs_accuracy(results, save_path=None):
     plt.close()
 
 
+def plot_ex2_accuracy_overview(results, save_path=None):
+    """Ex2: Main bar chart with test accuracy for all transfer-learning experiments."""
+    results_list = _to_result_list(results)
+    results_list = sorted(results_list, key=lambda r: r.get('test_acc', 0), reverse=True)
+
+    names = [r['name'] for r in results_list]
+    accs = [r.get('test_acc', 0) for r in results_list]
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    bars = ax.bar(names, accs, color='royalblue', alpha=0.9)
+    ax.set_title('Ex2 Overview - Test Accuracy by Experiment', fontweight='bold')
+    ax.set_ylabel('Test Accuracy (%)')
+    ax.set_ylim(0, 100)
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+    for i, bar in enumerate(bars):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                f"{accs[i]:.2f}%", ha='center', va='bottom', fontsize=9)
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex2 accuracy overview saved: {save_path}")
+    plt.close()
+
+
+def plot_ex2_architecture_val_accuracy_curves(results, save_path=None):
+    """Ex2: Validation accuracy curves for architecture comparison experiments."""
+    results_list = _to_result_list(results)
+    arch_results = [r for r in results_list if r['name'].startswith('Architecture_')]
+    if not arch_results:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for result in arch_results:
+        history = result['history']
+        epochs = range(1, len(history['val_acc']) + 1)
+        ax.plot(epochs, history['val_acc'], linewidth=2, label=result['name'])
+
+    ax.set_title('Ex2 Architectures - Validation Accuracy Curves', fontweight='bold')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Validation Accuracy (%)')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex2 architecture curves saved: {save_path}")
+    plt.close()
+
+
+def plot_ex2_frozen_vs_finetuned_curves(results, save_path=None):
+    """Ex2: Frozen vs fine-tuned train/val accuracy comparison."""
+    results_list = _to_result_list(results)
+    mode_results = [r for r in results_list if r['name'].startswith('ResNet18_')]
+    mode_results = [r for r in mode_results if ('Frozen' in r['name']) or ('FineTuned' in r['name'])]
+    if not mode_results:
+        return
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    for result in mode_results:
+        history = result['history']
+        epochs = range(1, len(history['train_acc']) + 1)
+        axes[0].plot(epochs, history['train_acc'], linewidth=2, label=result['name'])
+        axes[1].plot(epochs, history['val_acc'], linewidth=2, label=result['name'])
+
+    axes[0].set_title('Train Accuracy', fontweight='bold')
+    axes[0].set_xlabel('Epoch')
+    axes[0].set_ylabel('Accuracy (%)')
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend()
+
+    axes[1].set_title('Validation Accuracy', fontweight='bold')
+    axes[1].set_xlabel('Epoch')
+    axes[1].set_ylabel('Accuracy (%)')
+    axes[1].grid(True, alpha=0.3)
+    axes[1].legend()
+
+    plt.suptitle('Ex2 Frozen vs Fine-Tuned (ResNet18)', fontweight='bold')
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex2 frozen-vs-finetuned curves saved: {save_path}")
+    plt.close()
+
+
+def plot_ex2_learning_rate_val_loss_curves(results, save_path=None):
+    """Ex2: Validation loss curves for learning-rate experiments."""
+    results_list = _to_result_list(results)
+    lr_results = [r for r in results_list if r['name'].startswith('LearningRate_') or r['name'].startswith('LR_')]
+    if not lr_results:
+        return
+
+    lr_results = sorted(
+        lr_results,
+        key=lambda r: r.get('config', {}).get('learning_rate', r.get('hyperparameters', {}).get('learning_rate', 0))
+    )
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for result in lr_results:
+        history = result['history']
+        lr = result.get('config', {}).get('learning_rate', result.get('hyperparameters', {}).get('learning_rate', 'NA'))
+        epochs = range(1, len(history['val_loss']) + 1)
+        ax.plot(epochs, history['val_loss'], linewidth=2, label=f'lr={lr}')
+
+    ax.set_title('Ex2 Learning Rates - Validation Loss Curves', fontweight='bold')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Validation Loss')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex2 learning-rate val-loss curves saved: {save_path}")
+    plt.close()
+
+
+def plot_ex2_time_vs_accuracy(results, save_path=None):
+    """Ex2: Training-time vs test-accuracy scatter."""
+    results_list = _to_result_list(results)
+    names = [r['name'] for r in results_list]
+    times = [r.get('total_time', r.get('metrics', {}).get('total_training_time', 0)) for r in results_list]
+    accs = [r.get('test_acc', r.get('metrics', {}).get('test_acc', 0)) for r in results_list]
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.scatter(times, accs, s=80, c='darkorange', alpha=0.85)
+    for i, name in enumerate(names):
+        ax.annotate(name, (times[i], accs[i]), textcoords='offset points', xytext=(5, 5), fontsize=8)
+
+    ax.set_title('Ex2 Efficiency Tradeoff - Training Time vs Test Accuracy', fontweight='bold')
+    ax.set_xlabel('Total Training Time (seconds)')
+    ax.set_ylabel('Test Accuracy (%)')
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex2 time-vs-accuracy plot saved: {save_path}")
+    plt.close()
+
+
+def plot_ex2_learning_rate_vs_accuracy(results, save_path=None):
+    """Ex2: Learning rate against final test accuracy."""
+    results_list = _to_result_list(results)
+    lr_results = [r for r in results_list if r['name'].startswith('LearningRate_') or r['name'].startswith('LR_')]
+    if not lr_results:
+        return
+
+    lrs = [r.get('config', {}).get('learning_rate', r.get('hyperparameters', {}).get('learning_rate', np.nan)) for r in lr_results]
+    accs = [r.get('test_acc', 0) for r in lr_results]
+
+    valid = [(lr, acc) for lr, acc in zip(lrs, accs) if not np.isnan(lr)]
+    if not valid:
+        return
+
+    lrs, accs = zip(*valid)
+    sort_idx = np.argsort(lrs)
+    lrs = np.array(lrs)[sort_idx]
+    accs = np.array(accs)[sort_idx]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(lrs, accs, marker='o', linewidth=2, color='teal')
+    ax.set_xscale('log')
+    ax.set_title('Ex2 Learning Rate vs Test Accuracy', fontweight='bold')
+    ax.set_xlabel('Learning Rate (log scale)')
+    ax.set_ylabel('Test Accuracy (%)')
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex2 learning-rate-vs-accuracy plot saved: {save_path}")
+    plt.close()
+
+
 # ============================================================================
 # SEGMENTATION VISUALIZATION (Ex3)
 # ============================================================================

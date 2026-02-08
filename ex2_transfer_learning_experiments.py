@@ -16,7 +16,10 @@ from pet_data_loaders import load_pet_classification_dataset, PET_CLASSES
 from ex2_transfer_learning_models import get_transfer_model
 from training_utils import ClassificationTrainer, get_optimizer, get_scheduler
 from visualization_utils import (plot_training_curves, plot_comparison_results,
-                           visualize_classification_predictions, generate_experiment_report)
+                           visualize_classification_predictions, generate_experiment_report,
+                           plot_ex2_accuracy_overview, plot_ex2_architecture_val_accuracy_curves,
+                           plot_ex2_frozen_vs_finetuned_curves, plot_ex2_learning_rate_val_loss_curves,
+                           plot_ex2_time_vs_accuracy, plot_ex2_learning_rate_vs_accuracy)
 
 
 def save_experiment_results(all_results, save_dir):
@@ -303,6 +306,32 @@ def main():
     generate_experiment_report(
         list(all_results.values()),
         save_path=os.path.join(results_dir, 'experiment_report.txt')
+    )
+
+    # Report-focused Ex2 figures (5-6 key plots)
+    plot_ex2_accuracy_overview(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_01_accuracy_overview.png')
+    )
+    plot_ex2_architecture_val_accuracy_curves(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_02_architecture_val_curves.png')
+    )
+    plot_ex2_frozen_vs_finetuned_curves(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_03_frozen_vs_finetuned.png')
+    )
+    plot_ex2_learning_rate_val_loss_curves(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_04_lr_val_loss_curves.png')
+    )
+    plot_ex2_time_vs_accuracy(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_05_time_vs_accuracy.png')
+    )
+    plot_ex2_learning_rate_vs_accuracy(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_06_lr_vs_accuracy.png')
     )
     
     print("\n" + "=" * 80)
