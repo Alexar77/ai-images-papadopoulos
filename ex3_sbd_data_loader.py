@@ -39,12 +39,25 @@ class SBDSegmentation(torch.utils.data.Dataset):
     """Custom Dataset για SBD με transforms"""
     
     def __init__(self, root, image_set='train', download=True, image_size=256):
-        self.dataset = torchvision.datasets.SBDataset(
-            root=root,
-            image_set=image_set,
-            mode='segmentation',
-            download=download
-        )
+        try:
+            self.dataset = torchvision.datasets.SBDataset(
+                root=root,
+                image_set=image_set,
+                mode='segmentation',
+                download=download
+            )
+        except Exception as e:
+            # Some torchvision versions fail on repeated download attempts
+            # if extracted folders already exist. Retry without download.
+            if download and "already exists" in str(e):
+                self.dataset = torchvision.datasets.SBDataset(
+                    root=root,
+                    image_set=image_set,
+                    mode='segmentation',
+                    download=False
+                )
+            else:
+                raise
         self.image_transform, self.mask_transform = get_sbd_transforms(image_size)
     
     def __len__(self):
@@ -83,7 +96,7 @@ def load_sbd_dataset(data_dir='./data', batch_size=8, num_workers=2, image_size=
     val_dataset = SBDSegmentation(
         root=data_dir,
         image_set='val',
-        download=True,
+        download=False,
         image_size=image_size
     )
     
