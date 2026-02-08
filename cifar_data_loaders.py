@@ -6,7 +6,7 @@ Supports both classification tasks with flexible configuration
 import torch
 import torchvision
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 
 
 CIFAR10_CLASSES = [
@@ -86,15 +86,8 @@ def load_cifar10_dataset(
         transform=train_transform
     )
     
-    # Split into train and validation
-    train_size = int((1 - val_split) * len(full_train_dataset))
-    val_size = len(full_train_dataset) - train_size
-    
-    train_dataset, val_dataset = random_split(
-        full_train_dataset,
-        [train_size, val_size],
-        generator=torch.Generator().manual_seed(42)
-    )
+    # No official validation split in CIFAR-10.
+    train_dataset = full_train_dataset
     
     # Load test set
     test_dataset = torchvision.datasets.CIFAR10(
@@ -113,14 +106,6 @@ def load_cifar10_dataset(
         pin_memory=True
     )
     
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True
-    )
-    
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
@@ -128,6 +113,7 @@ def load_cifar10_dataset(
         num_workers=num_workers,
         pin_memory=True
     )
+    val_loader = None
     
     num_classes = 10
     
@@ -135,7 +121,6 @@ def load_cifar10_dataset(
     print("CIFAR-10 Dataset Loaded")
     print(f"{'='*70}")
     print(f"Training samples: {len(train_dataset)}")
-    print(f"Validation samples: {len(val_dataset)}")
     print(f"Test samples: {len(test_dataset)}")
     print(f"Number of classes: {num_classes}")
     print(f"Image size: {image_size}x{image_size}")
@@ -170,15 +155,8 @@ def load_cifar100_dataset(
         transform=train_transform
     )
     
-    # Split into train and validation
-    train_size = int((1 - val_split) * len(full_train_dataset))
-    val_size = len(full_train_dataset) - train_size
-    
-    train_dataset, val_dataset = random_split(
-        full_train_dataset,
-        [train_size, val_size],
-        generator=torch.Generator().manual_seed(42)
-    )
+    # No official validation split in CIFAR-100.
+    train_dataset = full_train_dataset
     
     # Load test set
     test_dataset = torchvision.datasets.CIFAR100(
@@ -197,14 +175,6 @@ def load_cifar100_dataset(
         pin_memory=True
     )
     
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True
-    )
-    
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
@@ -212,6 +182,7 @@ def load_cifar100_dataset(
         num_workers=num_workers,
         pin_memory=True
     )
+    val_loader = None
     
     num_classes = 100
     
@@ -219,7 +190,6 @@ def load_cifar100_dataset(
     print("CIFAR-100 Dataset Loaded")
     print(f"{'='*70}")
     print(f"Training samples: {len(train_dataset)}")
-    print(f"Validation samples: {len(val_dataset)}")
     print(f"Test samples: {len(test_dataset)}")
     print(f"Number of classes: {num_classes}")
     print(f"Image size: 32x32")

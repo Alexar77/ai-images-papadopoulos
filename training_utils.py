@@ -188,35 +188,42 @@ class ClassificationTrainer:
         print(f"Device: {self.device}")
         print("=" * 70)
 
+        use_validation = val_loader is not None
         early_stop = EarlyStoppingController(
             patience=early_stopping_patience,
-            mode='max'
+            mode='max' if use_validation else 'min'
         )
         
         for epoch in range(num_epochs):
             start_time = time.time()
             
             train_loss, train_acc = self.train_epoch(train_loader, criterion, optimizer)
-            val_loss, val_acc = self.evaluate(val_loader, criterion)
+            if use_validation:
+                val_loss, val_acc = self.evaluate(val_loader, criterion)
+            else:
+                val_loss, val_acc = None, None
             
             if scheduler is not None:
                 if isinstance(scheduler, ReduceLROnPlateau):
-                    scheduler.step(val_loss)
+                    scheduler.step(val_loss if use_validation else train_loss)
                 else:
                     scheduler.step()
             
-            _, should_stop = early_stop.update(val_acc, self.model)
+            monitor_value = val_acc if use_validation else train_loss
+            _, should_stop = early_stop.update(monitor_value, self.model)
             
             epoch_time = time.time() - start_time
             self.history['train_loss'].append(train_loss)
             self.history['train_acc'].append(train_acc)
-            self.history['val_loss'].append(val_loss)
-            self.history['val_acc'].append(val_acc)
+            if use_validation:
+                self.history['val_loss'].append(val_loss)
+                self.history['val_acc'].append(val_acc)
             self.history['epoch_times'].append(epoch_time)
             
             print(f"\nEpoch [{epoch+1}/{num_epochs}] - Time: {epoch_time:.2f}s")
             print(f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
-            print(f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%")
+            if use_validation:
+                print(f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%")
             if scheduler is not None and hasattr(scheduler, 'get_last_lr'):
                 print(f"Learning Rate: {scheduler.get_last_lr()[0]:.6f}")
             print("-" * 70)
@@ -229,8 +236,12 @@ class ClassificationTrainer:
             self.model.load_state_dict(early_stop.best_state)
         
         print(f"\nΕκπαίδευση ολοκληρώθηκε!")
-        best_val_acc = early_stop.best_value if early_stop.best_value is not None else 0.0
-        print(f"Best Validation Accuracy: {best_val_acc:.2f}%")
+        if use_validation:
+            best_val_acc = early_stop.best_value if early_stop.best_value is not None else 0.0
+            print(f"Best Validation Accuracy: {best_val_acc:.2f}%")
+        else:
+            best_train_loss = early_stop.best_value if early_stop.best_value is not None else float('inf')
+            print(f"Best Training Loss (early-stop monitor): {best_train_loss:.4f}")
         print("=" * 70)
         
         return self.history

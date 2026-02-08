@@ -10,15 +10,14 @@ import os
 import json
 import argparse
 from datetime import datetime
-from torch.utils.data import DataLoader, random_split
 
 from pet_data_loaders import load_pet_classification_dataset, PET_CLASSES
 from ex2_transfer_learning_models import get_transfer_model
 from training_utils import ClassificationTrainer, get_optimizer, get_scheduler
 from visualization_utils import (plot_training_curves, plot_comparison_results,
                            visualize_classification_predictions, generate_experiment_report,
-                           plot_ex2_accuracy_overview, plot_ex2_architecture_val_accuracy_curves,
-                           plot_ex2_frozen_vs_finetuned_curves, plot_ex2_learning_rate_val_loss_curves,
+                           plot_ex2_accuracy_overview, plot_ex2_architecture_train_accuracy_curves,
+                           plot_ex2_frozen_vs_finetuned_curves, plot_ex2_learning_rate_train_loss_curves,
                            plot_ex2_time_vs_accuracy, plot_ex2_learning_rate_vs_accuracy)
 
 
@@ -31,7 +30,7 @@ def save_experiment_results(all_results, save_dir):
 
 
 def run_transfer_experiment(experiment_name, model_name, hyperparameters,
-                           train_loader, val_loader, test_loader, 
+                           train_loader, test_loader, 
                            num_classes, num_epochs=20, results_dir='results_transfer'):
     """
     Εκτέλεση ενός transfer learning πειράματος
@@ -77,7 +76,7 @@ def run_transfer_experiment(experiment_name, model_name, hyperparameters,
     trainer = ClassificationTrainer(model, device=device)
     start_time = time.time()
     history = trainer.train(
-        train_loader, val_loader, criterion, optimizer,
+        train_loader, None, criterion, optimizer,
         num_epochs=num_epochs, scheduler=scheduler,
         early_stopping_patience=5
     )
@@ -107,7 +106,7 @@ def run_transfer_experiment(experiment_name, model_name, hyperparameters,
     torch.save(model.state_dict(), os.path.join(exp_dir, 'model.pth'))
     
     # Results
-    best_val_acc = max(history['val_acc']) if history.get('val_acc') else 0.0
+    best_train_acc = max(history['train_acc']) if history.get('train_acc') else 0.0
     results = {
         'name': experiment_name,
         'config': {
@@ -115,13 +114,13 @@ def run_transfer_experiment(experiment_name, model_name, hyperparameters,
             **hyperparameters
         },
         'metrics': {
-            'best_val_acc': best_val_acc,
+            'best_train_acc': best_train_acc,
             'test_acc': test_acc,
             'test_loss': test_loss,
             'total_training_time': training_time,
             'parameters': {'total': model_info['total_params']}
         },
-        'val_acc': best_val_acc,
+        'train_acc': best_train_acc,
         'test_acc': test_acc,
         'test_loss': test_loss,
         'total_time': training_time,
@@ -131,7 +130,7 @@ def run_transfer_experiment(experiment_name, model_name, hyperparameters,
     }
     
     print(f"\nΠείραμα '{experiment_name}' ολοκληρώθηκε!")
-    print(f"  Best Validation Accuracy: {results['val_acc']:.2f}%")
+    print(f"  Best Training Accuracy: {results['train_acc']:.2f}%")
     print(f"  Test Accuracy: {results['test_acc']:.2f}%")
     print(f"  Training Time: {training_time:.2f}s")
     print("=" * 80)
@@ -166,29 +165,6 @@ def main():
         batch_size=args.batch_size,
         num_workers=2
     )
-    train_dataset = train_loader.dataset
-    train_size = int(0.9 * len(train_dataset))
-    val_size = len(train_dataset) - train_size
-    train_subset, val_subset = random_split(
-        train_dataset,
-        [train_size, val_size],
-        generator=torch.Generator().manual_seed(42)
-    )
-    train_loader = DataLoader(
-        train_subset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=2,
-        pin_memory=True
-    )
-    val_loader = DataLoader(
-        val_subset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=2,
-        pin_memory=True
-    )
-    
     all_results = {}
     
     # ========================================================================
@@ -213,7 +189,7 @@ def main():
             f'Architecture_{arch}',
             arch,
             base_config,
-            train_loader, val_loader, test_loader,
+            train_loader, test_loader,
             num_classes,
             num_epochs=args.epochs,
             results_dir=results_dir
@@ -235,7 +211,7 @@ def main():
             f'ResNet18_{mode}',
             'resnet18',
             config,
-            train_loader, val_loader, test_loader,
+            train_loader, test_loader,
             num_classes,
             num_epochs=args.epochs,
             results_dir=results_dir
@@ -258,7 +234,7 @@ def main():
             f'LearningRate_{lr}',
             'resnet18',
             config,
-            train_loader, val_loader, test_loader,
+            train_loader, test_loader,
             num_classes,
             num_epochs=args.epochs,
             results_dir=results_dir
@@ -313,17 +289,17 @@ def main():
         all_results,
         save_path=os.path.join(results_dir, 'report_01_accuracy_overview.png')
     )
-    plot_ex2_architecture_val_accuracy_curves(
+    plot_ex2_architecture_train_accuracy_curves(
         all_results,
-        save_path=os.path.join(results_dir, 'report_02_architecture_val_curves.png')
+        save_path=os.path.join(results_dir, 'report_02_architecture_train_curves.png')
     )
     plot_ex2_frozen_vs_finetuned_curves(
         all_results,
         save_path=os.path.join(results_dir, 'report_03_frozen_vs_finetuned.png')
     )
-    plot_ex2_learning_rate_val_loss_curves(
+    plot_ex2_learning_rate_train_loss_curves(
         all_results,
-        save_path=os.path.join(results_dir, 'report_04_lr_val_loss_curves.png')
+        save_path=os.path.join(results_dir, 'report_04_lr_train_loss_curves.png')
     )
     plot_ex2_time_vs_accuracy(
         all_results,

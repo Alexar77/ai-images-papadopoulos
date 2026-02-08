@@ -69,7 +69,7 @@ def run_comparative_experiment(
     print(f"{'='*70}\n")
     
     # Load data
-    train_loader, val_loader, test_loader, num_classes = load_cifar10_dataset(
+    train_loader, _, test_loader, num_classes = load_cifar10_dataset(
         batch_size=batch_size,
         image_size=image_size,
         augment=True,
@@ -110,10 +110,10 @@ def run_comparative_experiment(
     # Train
     trainer = ClassificationTrainer(model, device=device)
     history = trainer.train(
-        train_loader=train_loader,
-        val_loader=val_loader,
-        criterion=criterion,
-        optimizer=optimizer,
+        train_loader,
+        None,
+        criterion,
+        optimizer,
         num_epochs=num_epochs,
         scheduler=scheduler,
         early_stopping_patience=7
@@ -153,7 +153,6 @@ def run_comparative_experiment(
     results = {
         'name': experiment_name,
         'test_acc': test_acc,
-        'val_acc': max(history['val_acc']) if history.get('val_acc') else 0.0,
         'experiment_name': experiment_name,
         'config': {
             'architecture': architecture,
@@ -169,9 +168,7 @@ def run_comparative_experiment(
         'metrics': {
             'test_acc': test_acc,
             'test_loss': test_loss,
-            'best_val_acc': max(history['val_acc']),
             'final_train_loss': history['train_loss'][-1],
-            'final_val_loss': history['val_loss'][-1],
             'parameters': param_info,
             'total_training_time': sum(history['epoch_times']),
             'inference_time': history['inference_time']

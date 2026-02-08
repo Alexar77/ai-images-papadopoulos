@@ -15,7 +15,7 @@ from cifar_data_loaders import load_cifar100_dataset
 from training_utils import ClassificationTrainer, get_criterion, get_optimizer, get_scheduler
 from visualization_utils import (plot_training_curves, plot_comparison_results, 
                            visualize_classification_predictions, generate_experiment_report,
-                           plot_ex1_accuracy_overview, plot_ex1_optimizer_val_accuracy_curves,
+                           plot_ex1_accuracy_overview, plot_ex1_optimizer_train_accuracy_curves,
                            plot_ex1_learning_rate_loss_curves, plot_ex1_generalization_gap,
                            plot_ex1_time_vs_accuracy, plot_ex1_learning_rate_vs_accuracy)
 
@@ -28,7 +28,7 @@ def save_experiment_results(all_results, save_dir):
     print(f"✓ Results saved: {output_path}")
 
 
-def run_experiment(experiment_name, hyperparameters, train_loader, val_loader, 
+def run_experiment(experiment_name, hyperparameters, train_loader, 
                    test_loader, num_epochs=30, results_dir='results'):
     """
     Εκτέλεση ενός πειράματος με συγκεκριμένες υπερ-παραμέτρους
@@ -36,7 +36,7 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     Args:
         experiment_name: Όνομα πειράματος
         hyperparameters: Dictionary με υπερ-παραμέτρους
-        train_loader, val_loader, test_loader: Data loaders
+        train_loader, test_loader: Data loaders
         num_epochs: Αριθμός epochs
         results_dir: Φάκελος αποθήκευσης αποτελεσμάτων
     """
@@ -77,7 +77,7 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     # Train
     start_time = time.time()
     history = trainer.train(
-        train_loader, val_loader, criterion, optimizer,
+        train_loader, None, criterion, optimizer,
         num_epochs=num_epochs, scheduler=scheduler,
         early_stopping_patience=10
     )
@@ -110,18 +110,18 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     torch.save(model.state_dict(), os.path.join(exp_dir, 'model.pth'))
     
     # Prepare results
-    best_val_acc = max(history['val_acc']) if history.get('val_acc') else 0.0
+    best_train_acc = max(history['train_acc']) if history.get('train_acc') else 0.0
     results = {
         'name': experiment_name,
         'config': hyperparameters,
         'metrics': {
-            'best_val_acc': best_val_acc,
+            'best_train_acc': best_train_acc,
             'test_acc': test_acc,
             'test_loss': test_loss,
             'total_training_time': training_time,
             'parameters': {'total': model.count_parameters()}
         },
-        'val_acc': best_val_acc,
+        'train_acc': best_train_acc,
         'test_acc': test_acc,
         'test_loss': test_loss,
         'total_time': training_time,
@@ -130,7 +130,7 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     }
     
     print(f"\nΠείραμα '{experiment_name}' ολοκληρώθηκε!")
-    print(f"  Best Validation Accuracy: {results['val_acc']:.2f}%")
+    print(f"  Best Training Accuracy: {results['train_acc']:.2f}%")
     print(f"  Test Accuracy: {results['test_acc']:.2f}%")
     print(f"  Training Time: {training_time:.2f} seconds")
     print("=" * 80)
@@ -164,7 +164,7 @@ def main():
     
     # Load data
     print("\nΦόρτωση δεδομένων CIFAR-100...")
-    train_loader, val_loader, test_loader, num_classes = load_cifar100_dataset(
+    train_loader, _, test_loader, num_classes = load_cifar100_dataset(
         batch_size=args.batch_size,
         num_workers=2
     )
@@ -192,7 +192,7 @@ def main():
     all_results['Loss_CrossEntropy'] = run_experiment(
         'Loss_CrossEntropy',
         exp_config,
-        train_loader, val_loader, test_loader,
+        train_loader, test_loader,
         num_epochs=args.epochs,
         results_dir=results_dir
     )
@@ -217,7 +217,7 @@ def main():
     all_results['Optimizer_SGD'] = run_experiment(
         'Optimizer_SGD',
         exp_config,
-        train_loader, val_loader, test_loader,
+        train_loader, test_loader,
         num_epochs=args.epochs,
         results_dir=results_dir
     )
@@ -228,7 +228,7 @@ def main():
     all_results['Optimizer_Adam'] = run_experiment(
         'Optimizer_Adam',
         exp_config,
-        train_loader, val_loader, test_loader,
+        train_loader, test_loader,
         num_epochs=args.epochs,
         results_dir=results_dir
     )
@@ -239,7 +239,7 @@ def main():
     all_results['Optimizer_AdamW'] = run_experiment(
         'Optimizer_AdamW',
         exp_config,
-        train_loader, val_loader, test_loader,
+        train_loader, test_loader,
         num_epochs=args.epochs,
         results_dir=results_dir
     )
@@ -250,7 +250,7 @@ def main():
     all_results['Optimizer_RMSprop'] = run_experiment(
         'Optimizer_RMSprop',
         exp_config,
-        train_loader, val_loader, test_loader,
+        train_loader, test_loader,
         num_epochs=args.epochs,
         results_dir=results_dir
     )
@@ -277,7 +277,7 @@ def main():
         all_results[f'LR_{lr}'] = run_experiment(
             f'LearningRate_{lr}',
             exp_config,
-            train_loader, val_loader, test_loader,
+            train_loader, test_loader,
             num_epochs=args.epochs,
             results_dir=results_dir
         )
@@ -326,13 +326,13 @@ def main():
         all_results,
         save_path=os.path.join(results_dir, 'report_01_accuracy_overview.png')
     )
-    plot_ex1_optimizer_val_accuracy_curves(
+    plot_ex1_optimizer_train_accuracy_curves(
         all_results,
-        save_path=os.path.join(results_dir, 'report_02_optimizer_val_curves.png')
+        save_path=os.path.join(results_dir, 'report_02_optimizer_curves.png')
     )
     plot_ex1_learning_rate_loss_curves(
         all_results,
-        save_path=os.path.join(results_dir, 'report_03_lr_loss_curves.png')
+        save_path=os.path.join(results_dir, 'report_03_lr_train_loss_curves.png')
     )
     plot_ex1_generalization_gap(
         all_results,

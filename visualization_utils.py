@@ -215,8 +215,8 @@ def plot_ex1_accuracy_overview(results, save_path=None):
     plt.close()
 
 
-def plot_ex1_optimizer_val_accuracy_curves(results, save_path=None):
-    """Ex1: Validation accuracy curves for optimizer comparison experiments."""
+def plot_ex1_optimizer_train_accuracy_curves(results, save_path=None):
+    """Ex1: Training accuracy curves for optimizer comparison experiments."""
     results_list = _to_result_list(results)
     optimizer_results = [r for r in results_list if r['name'].startswith('Optimizer_')]
     if not optimizer_results:
@@ -225,12 +225,12 @@ def plot_ex1_optimizer_val_accuracy_curves(results, save_path=None):
     fig, ax = plt.subplots(figsize=(10, 6))
     for result in optimizer_results:
         history = result['history']
-        epochs = range(1, len(history['val_acc']) + 1)
-        ax.plot(epochs, history['val_acc'], linewidth=2, label=result['name'])
+        epochs = range(1, len(history['train_acc']) + 1)
+        ax.plot(epochs, history['train_acc'], linewidth=2, label=result['name'])
 
-    ax.set_title('Ex1 Optimizers - Validation Accuracy Curves', fontweight='bold')
+    ax.set_title('Ex1 Optimizers - Training Accuracy Curves', fontweight='bold')
     ax.set_xlabel('Epoch')
-    ax.set_ylabel('Validation Accuracy (%)')
+    ax.set_ylabel('Training Accuracy (%)')
     ax.grid(True, alpha=0.3)
     ax.legend()
     plt.tight_layout()
@@ -242,7 +242,7 @@ def plot_ex1_optimizer_val_accuracy_curves(results, save_path=None):
 
 
 def plot_ex1_learning_rate_loss_curves(results, save_path=None):
-    """Ex1: Train/val loss curves for learning rate experiments."""
+    """Ex1: Train loss curves for learning rate experiments."""
     results_list = _to_result_list(results)
     lr_results = [r for r in results_list if 'learning_rate' in r.get('config', {})]
     lr_results = [r for r in lr_results if r['name'].startswith('LearningRate_') or r['name'].startswith('LR_')]
@@ -250,26 +250,19 @@ def plot_ex1_learning_rate_loss_curves(results, save_path=None):
         return
 
     lr_results = sorted(lr_results, key=lambda r: r['config']['learning_rate'])
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    fig, ax = plt.subplots(figsize=(10, 6))
 
     for result in lr_results:
         history = result['history']
         lr = result['config']['learning_rate']
         epochs = range(1, len(history['train_loss']) + 1)
-        axes[0].plot(epochs, history['train_loss'], linewidth=2, label=f"lr={lr}")
-        axes[1].plot(epochs, history['val_loss'], linewidth=2, label=f"lr={lr}")
+        ax.plot(epochs, history['train_loss'], linewidth=2, label=f"lr={lr}")
 
-    axes[0].set_title('Train Loss by Learning Rate', fontweight='bold')
-    axes[0].set_xlabel('Epoch')
-    axes[0].set_ylabel('Train Loss')
-    axes[0].grid(True, alpha=0.3)
-    axes[0].legend()
-
-    axes[1].set_title('Val Loss by Learning Rate', fontweight='bold')
-    axes[1].set_xlabel('Epoch')
-    axes[1].set_ylabel('Validation Loss')
-    axes[1].grid(True, alpha=0.3)
-    axes[1].legend()
+    ax.set_title('Ex1 Learning Rates - Training Loss Curves', fontweight='bold')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Training Loss')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
 
     plt.tight_layout()
     if save_path:
@@ -279,7 +272,7 @@ def plot_ex1_learning_rate_loss_curves(results, save_path=None):
 
 
 def plot_ex1_generalization_gap(results, save_path=None):
-    """Ex1: Best train-val accuracy gap per experiment."""
+    """Ex1: Best train-test accuracy gap per experiment."""
     results_list = _to_result_list(results)
     names = []
     gaps = []
@@ -287,7 +280,7 @@ def plot_ex1_generalization_gap(results, save_path=None):
     for result in results_list:
         history = result.get('history', {})
         train_acc = max(history.get('train_acc', [0]))
-        val_acc = max(history.get('val_acc', [0]))
+        val_acc = result.get('test_acc', 0)
         names.append(result['name'])
         gaps.append(train_acc - val_acc)
 
@@ -297,7 +290,7 @@ def plot_ex1_generalization_gap(results, save_path=None):
 
     fig, ax = plt.subplots(figsize=(12, 6))
     bars = ax.bar(names, gaps, color='indianred', alpha=0.85)
-    ax.set_title('Ex1 Generalization Gap (Best Train Acc - Best Val Acc)', fontweight='bold')
+    ax.set_title('Ex1 Generalization Gap (Best Train Acc - Test Acc)', fontweight='bold')
     ax.set_ylabel('Gap (%)')
     ax.axhline(0, color='black', linewidth=1)
     ax.grid(True, alpha=0.3, axis='y')
@@ -395,8 +388,8 @@ def plot_ex2_accuracy_overview(results, save_path=None):
     plt.close()
 
 
-def plot_ex2_architecture_val_accuracy_curves(results, save_path=None):
-    """Ex2: Validation accuracy curves for architecture comparison experiments."""
+def plot_ex2_architecture_train_accuracy_curves(results, save_path=None):
+    """Ex2: Training accuracy curves for architecture comparison experiments."""
     results_list = _to_result_list(results)
     arch_results = [r for r in results_list if r['name'].startswith('Architecture_')]
     if not arch_results:
@@ -405,12 +398,12 @@ def plot_ex2_architecture_val_accuracy_curves(results, save_path=None):
     fig, ax = plt.subplots(figsize=(10, 6))
     for result in arch_results:
         history = result['history']
-        epochs = range(1, len(history['val_acc']) + 1)
-        ax.plot(epochs, history['val_acc'], linewidth=2, label=result['name'])
+        epochs = range(1, len(history['train_acc']) + 1)
+        ax.plot(epochs, history['train_acc'], linewidth=2, label=result['name'])
 
-    ax.set_title('Ex2 Architectures - Validation Accuracy Curves', fontweight='bold')
+    ax.set_title('Ex2 Architectures - Training Accuracy Curves', fontweight='bold')
     ax.set_xlabel('Epoch')
-    ax.set_ylabel('Validation Accuracy (%)')
+    ax.set_ylabel('Training Accuracy (%)')
     ax.grid(True, alpha=0.3)
     ax.legend()
     plt.tight_layout()
@@ -422,7 +415,7 @@ def plot_ex2_architecture_val_accuracy_curves(results, save_path=None):
 
 
 def plot_ex2_frozen_vs_finetuned_curves(results, save_path=None):
-    """Ex2: Frozen vs fine-tuned train/val accuracy comparison."""
+    """Ex2: Frozen vs fine-tuned training comparison."""
     results_list = _to_result_list(results)
     mode_results = [r for r in results_list if r['name'].startswith('ResNet18_')]
     mode_results = [r for r in mode_results if ('Frozen' in r['name']) or ('FineTuned' in r['name'])]
@@ -434,7 +427,7 @@ def plot_ex2_frozen_vs_finetuned_curves(results, save_path=None):
         history = result['history']
         epochs = range(1, len(history['train_acc']) + 1)
         axes[0].plot(epochs, history['train_acc'], linewidth=2, label=result['name'])
-        axes[1].plot(epochs, history['val_acc'], linewidth=2, label=result['name'])
+        axes[1].plot(epochs, history['train_loss'], linewidth=2, label=result['name'])
 
     axes[0].set_title('Train Accuracy', fontweight='bold')
     axes[0].set_xlabel('Epoch')
@@ -442,9 +435,9 @@ def plot_ex2_frozen_vs_finetuned_curves(results, save_path=None):
     axes[0].grid(True, alpha=0.3)
     axes[0].legend()
 
-    axes[1].set_title('Validation Accuracy', fontweight='bold')
+    axes[1].set_title('Training Loss', fontweight='bold')
     axes[1].set_xlabel('Epoch')
-    axes[1].set_ylabel('Accuracy (%)')
+    axes[1].set_ylabel('Loss')
     axes[1].grid(True, alpha=0.3)
     axes[1].legend()
 
@@ -457,8 +450,8 @@ def plot_ex2_frozen_vs_finetuned_curves(results, save_path=None):
     plt.close()
 
 
-def plot_ex2_learning_rate_val_loss_curves(results, save_path=None):
-    """Ex2: Validation loss curves for learning-rate experiments."""
+def plot_ex2_learning_rate_train_loss_curves(results, save_path=None):
+    """Ex2: Training loss curves for learning-rate experiments."""
     results_list = _to_result_list(results)
     lr_results = [r for r in results_list if r['name'].startswith('LearningRate_') or r['name'].startswith('LR_')]
     if not lr_results:
@@ -473,12 +466,12 @@ def plot_ex2_learning_rate_val_loss_curves(results, save_path=None):
     for result in lr_results:
         history = result['history']
         lr = result.get('config', {}).get('learning_rate', result.get('hyperparameters', {}).get('learning_rate', 'NA'))
-        epochs = range(1, len(history['val_loss']) + 1)
-        ax.plot(epochs, history['val_loss'], linewidth=2, label=f'lr={lr}')
+        epochs = range(1, len(history['train_loss']) + 1)
+        ax.plot(epochs, history['train_loss'], linewidth=2, label=f'lr={lr}')
 
-    ax.set_title('Ex2 Learning Rates - Validation Loss Curves', fontweight='bold')
+    ax.set_title('Ex2 Learning Rates - Training Loss Curves', fontweight='bold')
     ax.set_xlabel('Epoch')
-    ax.set_ylabel('Validation Loss')
+    ax.set_ylabel('Training Loss')
     ax.grid(True, alpha=0.3)
     ax.legend()
     plt.tight_layout()
@@ -801,6 +794,7 @@ def plot_comparative_training_curves(results, save_path=None):
     """
     
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    use_validation = any(len(result['history'].get('val_loss', [])) > 0 for result in results)
     
     # Training Loss
     ax = axes[0, 0]
@@ -814,13 +808,19 @@ def plot_comparative_training_curves(results, save_path=None):
     ax.grid(True, alpha=0.3)
     ax.legend()
     
-    # Validation Loss
+    # Secondary loss plot (validation if available, otherwise repeat train)
     ax = axes[0, 1]
     for result in results:
         history = result['history']
-        epochs = range(1, len(history['val_loss']) + 1)
-        ax.plot(epochs, history['val_loss'], marker='s', label=result['name'], linewidth=2)
-    ax.set_title('Validation Loss', fontsize=14, fontweight='bold')
+        if use_validation:
+            curve = history.get('val_loss', [])
+            title = 'Validation Loss'
+        else:
+            curve = history.get('train_loss', [])
+            title = 'Training Loss (Reference)'
+        epochs = range(1, len(curve) + 1)
+        ax.plot(epochs, curve, marker='s', label=result['name'], linewidth=2)
+    ax.set_title(title, fontsize=14, fontweight='bold')
     ax.set_xlabel('Epoch')
     ax.set_ylabel('Loss')
     ax.grid(True, alpha=0.3)
@@ -838,13 +838,19 @@ def plot_comparative_training_curves(results, save_path=None):
     ax.grid(True, alpha=0.3)
     ax.legend()
     
-    # Validation Accuracy
+    # Secondary accuracy plot (validation if available, otherwise repeat train)
     ax = axes[1, 1]
     for result in results:
         history = result['history']
-        epochs = range(1, len(history['val_acc']) + 1)
-        ax.plot(epochs, history['val_acc'], marker='s', label=result['name'], linewidth=2)
-    ax.set_title('Validation Accuracy', fontsize=14, fontweight='bold')
+        if use_validation:
+            curve = history.get('val_acc', [])
+            title = 'Validation Accuracy'
+        else:
+            curve = history.get('train_acc', [])
+            title = 'Training Accuracy (Reference)'
+        epochs = range(1, len(curve) + 1)
+        ax.plot(epochs, curve, marker='s', label=result['name'], linewidth=2)
+    ax.set_title(title, fontsize=14, fontweight='bold')
     ax.set_xlabel('Epoch')
     ax.set_ylabel('Accuracy (%)')
     ax.grid(True, alpha=0.3)
@@ -868,7 +874,13 @@ def plot_model_comparison_bars(results, save_path=None):
     
     names = [r['name'] for r in results]
     test_accs = [r['metrics']['test_acc'] for r in results]
-    best_val_accs = [max(r['history']['val_acc']) for r in results]
+    use_validation = any(r['history'].get('val_acc') for r in results)
+    best_val_accs = [
+        max(r['history']['val_acc']) if r['history'].get('val_acc')
+        else max(r['history']['train_acc']) if r['history'].get('train_acc')
+        else 0.0
+        for r in results
+    ]
     params = [r['metrics']['parameters']['total_millions'] for r in results]
     times = [sum(r['history']['epoch_times']) for r in results]
     
@@ -886,10 +898,10 @@ def plot_model_comparison_bars(results, save_path=None):
                 ha='center', va='bottom', fontweight='bold')
     plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
     
-    # Best Validation Accuracy
+    # Secondary accuracy metric
     ax = axes[0, 1]
     bars = ax.bar(names, best_val_accs, color='coral', alpha=0.8)
-    ax.set_title('Best Validation Accuracy', fontsize=14, fontweight='bold')
+    ax.set_title('Best Validation Accuracy' if use_validation else 'Best Training Accuracy', fontsize=14, fontweight='bold')
     ax.set_ylabel('Accuracy (%)')
     ax.set_ylim([0, 100])
     ax.grid(True, alpha=0.3, axis='y')
