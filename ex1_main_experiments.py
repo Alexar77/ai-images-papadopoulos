@@ -14,7 +14,10 @@ from ex1_vanilla_cnn import VanillaCNN
 from cifar_data_loaders import load_cifar100_dataset
 from training_utils import ClassificationTrainer, get_criterion, get_optimizer, get_scheduler
 from visualization_utils import (plot_training_curves, plot_comparison_results, 
-                           visualize_classification_predictions, generate_experiment_report)
+                           visualize_classification_predictions, generate_experiment_report,
+                           plot_ex1_accuracy_overview, plot_ex1_optimizer_val_accuracy_curves,
+                           plot_ex1_learning_rate_loss_curves, plot_ex1_generalization_gap,
+                           plot_ex1_time_vs_accuracy, plot_ex1_learning_rate_vs_accuracy)
 
 
 def save_experiment_results(all_results, save_dir):
@@ -146,7 +149,7 @@ def main():
     args = parser.parse_args()
     
     if args.quick_test:
-        args.epochs = 1
+        args.epochs = 5
         print("\n*** QUICK TEST MODE: Running with only 5 epochs ***\n")
     
     # Create results directory
@@ -316,6 +319,32 @@ def main():
     plot_comparison_results(
         list(all_results.values()),
         save_path=os.path.join(results_dir, 'comparison_all_experiments.png')
+    )
+
+    # 5. Report-focused Ex1 figures (5-6 key plots)
+    plot_ex1_accuracy_overview(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_01_accuracy_overview.png')
+    )
+    plot_ex1_optimizer_val_accuracy_curves(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_02_optimizer_val_curves.png')
+    )
+    plot_ex1_learning_rate_loss_curves(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_03_lr_loss_curves.png')
+    )
+    plot_ex1_generalization_gap(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_04_generalization_gap.png')
+    )
+    plot_ex1_time_vs_accuracy(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_05_time_vs_accuracy.png')
+    )
+    plot_ex1_learning_rate_vs_accuracy(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_06_lr_vs_accuracy.png')
     )
     
     # Save results to JSON

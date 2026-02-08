@@ -181,6 +181,193 @@ def visualize_classification_predictions(
     plt.close()
 
 
+def _to_result_list(results):
+    """Accept list or dict of experiment results and return a list."""
+    if isinstance(results, dict):
+        return list(results.values())
+    return list(results)
+
+
+def plot_ex1_accuracy_overview(results, save_path=None):
+    """Ex1: Main bar chart with test accuracy for all experiments."""
+    results_list = _to_result_list(results)
+    results_list = sorted(results_list, key=lambda r: r.get('test_acc', 0), reverse=True)
+
+    names = [r['name'] for r in results_list]
+    accs = [r.get('test_acc', 0) for r in results_list]
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    bars = ax.bar(names, accs, color='steelblue', alpha=0.9)
+    ax.set_title('Ex1 Overview - Test Accuracy by Experiment', fontweight='bold')
+    ax.set_ylabel('Test Accuracy (%)')
+    ax.set_ylim(0, 100)
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+    for i, bar in enumerate(bars):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                f"{accs[i]:.2f}%", ha='center', va='bottom', fontsize=9)
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex1 accuracy overview saved: {save_path}")
+    plt.close()
+
+
+def plot_ex1_optimizer_val_accuracy_curves(results, save_path=None):
+    """Ex1: Validation accuracy curves for optimizer comparison experiments."""
+    results_list = _to_result_list(results)
+    optimizer_results = [r for r in results_list if r['name'].startswith('Optimizer_')]
+    if not optimizer_results:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for result in optimizer_results:
+        history = result['history']
+        epochs = range(1, len(history['val_acc']) + 1)
+        ax.plot(epochs, history['val_acc'], linewidth=2, label=result['name'])
+
+    ax.set_title('Ex1 Optimizers - Validation Accuracy Curves', fontweight='bold')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Validation Accuracy (%)')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex1 optimizer curves saved: {save_path}")
+    plt.close()
+
+
+def plot_ex1_learning_rate_loss_curves(results, save_path=None):
+    """Ex1: Train/val loss curves for learning rate experiments."""
+    results_list = _to_result_list(results)
+    lr_results = [r for r in results_list if 'learning_rate' in r.get('config', {})]
+    lr_results = [r for r in lr_results if r['name'].startswith('LearningRate_') or r['name'].startswith('LR_')]
+    if not lr_results:
+        return
+
+    lr_results = sorted(lr_results, key=lambda r: r['config']['learning_rate'])
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    for result in lr_results:
+        history = result['history']
+        lr = result['config']['learning_rate']
+        epochs = range(1, len(history['train_loss']) + 1)
+        axes[0].plot(epochs, history['train_loss'], linewidth=2, label=f"lr={lr}")
+        axes[1].plot(epochs, history['val_loss'], linewidth=2, label=f"lr={lr}")
+
+    axes[0].set_title('Train Loss by Learning Rate', fontweight='bold')
+    axes[0].set_xlabel('Epoch')
+    axes[0].set_ylabel('Train Loss')
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend()
+
+    axes[1].set_title('Val Loss by Learning Rate', fontweight='bold')
+    axes[1].set_xlabel('Epoch')
+    axes[1].set_ylabel('Validation Loss')
+    axes[1].grid(True, alpha=0.3)
+    axes[1].legend()
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex1 learning-rate loss curves saved: {save_path}")
+    plt.close()
+
+
+def plot_ex1_generalization_gap(results, save_path=None):
+    """Ex1: Best train-val accuracy gap per experiment."""
+    results_list = _to_result_list(results)
+    names = []
+    gaps = []
+
+    for result in results_list:
+        history = result.get('history', {})
+        train_acc = max(history.get('train_acc', [0]))
+        val_acc = max(history.get('val_acc', [0]))
+        names.append(result['name'])
+        gaps.append(train_acc - val_acc)
+
+    sort_idx = np.argsort(gaps)[::-1]
+    names = [names[i] for i in sort_idx]
+    gaps = [gaps[i] for i in sort_idx]
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    bars = ax.bar(names, gaps, color='indianred', alpha=0.85)
+    ax.set_title('Ex1 Generalization Gap (Best Train Acc - Best Val Acc)', fontweight='bold')
+    ax.set_ylabel('Gap (%)')
+    ax.axhline(0, color='black', linewidth=1)
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+    for i, bar in enumerate(bars):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                f"{gaps[i]:.2f}", ha='center', va='bottom', fontsize=9)
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex1 generalization-gap plot saved: {save_path}")
+    plt.close()
+
+
+def plot_ex1_time_vs_accuracy(results, save_path=None):
+    """Ex1: Training-time vs test-accuracy scatter."""
+    results_list = _to_result_list(results)
+    names = [r['name'] for r in results_list]
+    times = [r.get('total_time', r.get('metrics', {}).get('total_training_time', 0)) for r in results_list]
+    accs = [r.get('test_acc', r.get('metrics', {}).get('test_acc', 0)) for r in results_list]
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.scatter(times, accs, s=80, c='darkorange', alpha=0.85)
+
+    for i, name in enumerate(names):
+        ax.annotate(name, (times[i], accs[i]), textcoords='offset points', xytext=(5, 5), fontsize=8)
+
+    ax.set_title('Ex1 Efficiency Tradeoff - Training Time vs Test Accuracy', fontweight='bold')
+    ax.set_xlabel('Total Training Time (seconds)')
+    ax.set_ylabel('Test Accuracy (%)')
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex1 time-vs-accuracy plot saved: {save_path}")
+    plt.close()
+
+
+def plot_ex1_learning_rate_vs_accuracy(results, save_path=None):
+    """Ex1: Learning rate against final test accuracy."""
+    results_list = _to_result_list(results)
+    lr_results = [r for r in results_list if 'learning_rate' in r.get('config', {})]
+    lr_results = [r for r in lr_results if r['name'].startswith('LearningRate_') or r['name'].startswith('LR_')]
+    if not lr_results:
+        return
+
+    lrs = [r['config']['learning_rate'] for r in lr_results]
+    accs = [r.get('test_acc', 0) for r in lr_results]
+    sort_idx = np.argsort(lrs)
+    lrs = np.array(lrs)[sort_idx]
+    accs = np.array(accs)[sort_idx]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(lrs, accs, marker='o', linewidth=2, color='teal')
+    ax.set_xscale('log')
+    ax.set_title('Ex1 Learning Rate vs Test Accuracy', fontweight='bold')
+    ax.set_xlabel('Learning Rate (log scale)')
+    ax.set_ylabel('Test Accuracy (%)')
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex1 learning-rate-vs-accuracy plot saved: {save_path}")
+    plt.close()
+
+
 # ============================================================================
 # SEGMENTATION VISUALIZATION (Ex3)
 # ============================================================================
