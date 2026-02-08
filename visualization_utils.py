@@ -8,6 +8,7 @@ import matplotlib.patches as patches
 import seaborn as sns
 import numpy as np
 import torch
+import os
 
 
 # ============================================================================
@@ -1087,6 +1088,188 @@ def plot_ex4_time_vs_accuracy(results, save_path=None):
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         print(f"✓ Ex4 time-vs-accuracy plot saved: {save_path}")
+    plt.close()
+
+
+def plot_ex5_accuracy_overview(results, save_path=None):
+    """Ex5: Main bar chart with test accuracy for all experiments."""
+    results_list = _to_result_list(results)
+    results_list = sorted(results_list, key=lambda r: r['metrics']['test_acc'], reverse=True)
+
+    names = [r['name'] for r in results_list]
+    accs = [r['metrics']['test_acc'] for r in results_list]
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    bars = ax.bar(names, accs, color='steelblue', alpha=0.9)
+    ax.set_title('Ex5 Overview - Test Accuracy by Experiment', fontweight='bold')
+    ax.set_ylabel('Test Accuracy (%)')
+    ax.set_ylim([0, 100])
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+    for i, bar in enumerate(bars):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                f"{accs[i]:.2f}%", ha='center', va='bottom', fontsize=9)
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex5 accuracy overview saved: {save_path}")
+    plt.close()
+
+
+def plot_ex5_family_mean_accuracy(results, save_path=None):
+    """Ex5: Grouped family-level mean accuracy (CNN vs ViT)."""
+    results_list = _to_result_list(results)
+    cnn_accs = [r['metrics']['test_acc'] for r in results_list if r['config']['architecture'] == 'cnn']
+    vit_accs = [r['metrics']['test_acc'] for r in results_list if r['config']['architecture'] == 'vit']
+    if not cnn_accs or not vit_accs:
+        return
+
+    labels = ['CNN', 'ViT']
+    means = [np.mean(cnn_accs), np.mean(vit_accs)]
+    stds = [np.std(cnn_accs), np.std(vit_accs)]
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    bars = ax.bar(labels, means, yerr=stds, capsize=6, color=['seagreen', 'darkorange'], alpha=0.9)
+    ax.set_title('Ex5 Family Comparison - Mean Test Accuracy', fontweight='bold')
+    ax.set_ylabel('Test Accuracy (%)')
+    ax.set_ylim([0, 100])
+    ax.grid(True, alpha=0.3, axis='y')
+
+    for i, bar in enumerate(bars):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                f"{means[i]:.2f}%", ha='center', va='bottom', fontsize=10)
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex5 family mean-accuracy plot saved: {save_path}")
+    plt.close()
+
+
+def plot_ex5_best_cnn_vs_vit_train_loss(results, save_path=None):
+    """Ex5: Train-loss curves of best CNN and best ViT runs."""
+    results_list = _to_result_list(results)
+    cnn_runs = [r for r in results_list if r['config']['architecture'] == 'cnn']
+    vit_runs = [r for r in results_list if r['config']['architecture'] == 'vit']
+    if not cnn_runs or not vit_runs:
+        return
+
+    best_cnn = max(cnn_runs, key=lambda r: r['metrics']['test_acc'])
+    best_vit = max(vit_runs, key=lambda r: r['metrics']['test_acc'])
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    for run, color in [(best_cnn, 'seagreen'), (best_vit, 'darkorange')]:
+        curve = run['history'].get('train_loss', [])
+        epochs = range(1, len(curve) + 1)
+        ax.plot(epochs, curve, linewidth=2.5, label=run['name'], color=color)
+
+    ax.set_title('Ex5 Best CNN vs Best ViT - Training Loss Curves', fontweight='bold')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Training Loss')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex5 best CNN-vs-ViT loss plot saved: {save_path}")
+    plt.close()
+
+
+def plot_ex5_lr_vs_accuracy_by_family(results, save_path=None):
+    """Ex5: Learning rate vs test accuracy, separate curves for CNN and ViT."""
+    results_list = _to_result_list(results)
+    cnn_runs = [r for r in results_list if r['config']['architecture'] == 'cnn']
+    vit_runs = [r for r in results_list if r['config']['architecture'] == 'vit']
+    if not cnn_runs and not vit_runs:
+        return
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    for runs, label, color in [(cnn_runs, 'CNN', 'seagreen'), (vit_runs, 'ViT', 'darkorange')]:
+        if not runs:
+            continue
+        pairs = sorted([(r['config']['learning_rate'], r['metrics']['test_acc']) for r in runs], key=lambda x: x[0])
+        lrs = [p[0] for p in pairs]
+        accs = [p[1] for p in pairs]
+        ax.plot(lrs, accs, marker='o', linewidth=2, label=label, color=color)
+
+    ax.set_xscale('log')
+    ax.set_title('Ex5 Learning Rate vs Test Accuracy (CNN vs ViT)', fontweight='bold')
+    ax.set_xlabel('Learning Rate (log scale)')
+    ax.set_ylabel('Test Accuracy (%)')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex5 LR-vs-accuracy plot saved: {save_path}")
+    plt.close()
+
+
+def plot_ex5_params_vs_accuracy(results, save_path=None):
+    """Ex5: Parameters (millions) vs test accuracy tradeoff."""
+    results_list = _to_result_list(results)
+    if not results_list:
+        return
+
+    params_m = [r['metrics']['parameters']['total_millions'] for r in results_list]
+    accs = [r['metrics']['test_acc'] for r in results_list]
+    names = [r['name'] for r in results_list]
+    colors = ['seagreen' if r['config']['architecture'] == 'cnn' else 'darkorange' for r in results_list]
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.scatter(params_m, accs, s=90, c=colors, alpha=0.85)
+    for i, name in enumerate(names):
+        ax.annotate(name, (params_m[i], accs[i]), textcoords='offset points', xytext=(5, 5), fontsize=8)
+
+    ax.set_title('Ex5 Tradeoff - Parameters vs Test Accuracy', fontweight='bold')
+    ax.set_xlabel('Parameters (Millions)')
+    ax.set_ylabel('Test Accuracy (%)')
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex5 params-vs-accuracy plot saved: {save_path}")
+    plt.close()
+
+
+def create_ex5_best_predictions_panel(results, results_root, save_path=None):
+    """Ex5: Side-by-side qualitative panel from best CNN and best ViT predictions."""
+    results_list = _to_result_list(results)
+    cnn_runs = [r for r in results_list if r['config']['architecture'] == 'cnn']
+    vit_runs = [r for r in results_list if r['config']['architecture'] == 'vit']
+    if not cnn_runs or not vit_runs:
+        return
+
+    best_cnn = max(cnn_runs, key=lambda r: r['metrics']['test_acc'])
+    best_vit = max(vit_runs, key=lambda r: r['metrics']['test_acc'])
+
+    cnn_img_path = os.path.join(results_root, best_cnn['experiment_name'], 'predictions.png')
+    vit_img_path = os.path.join(results_root, best_vit['experiment_name'], 'predictions.png')
+    if not (os.path.exists(cnn_img_path) and os.path.exists(vit_img_path)):
+        return
+
+    cnn_img = plt.imread(cnn_img_path)
+    vit_img = plt.imread(vit_img_path)
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+    axes[0].imshow(cnn_img)
+    axes[0].set_title(f"Best CNN: {best_cnn['name']}", fontweight='bold')
+    axes[0].axis('off')
+    axes[1].imshow(vit_img)
+    axes[1].set_title(f"Best ViT: {best_vit['name']}", fontweight='bold')
+    axes[1].axis('off')
+    plt.suptitle('Ex5 Qualitative Comparison - Best CNN vs Best ViT', fontweight='bold')
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✓ Ex5 best predictions panel saved: {save_path}")
     plt.close()
 
 

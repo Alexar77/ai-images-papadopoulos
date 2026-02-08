@@ -21,6 +21,12 @@ from visualization_utils import (
     plot_model_comparison_bars,
     visualize_classification_predictions as visualize_predictions,
     generate_experiment_report as generate_comparative_report,
+    plot_ex5_accuracy_overview,
+    plot_ex5_family_mean_accuracy,
+    plot_ex5_best_cnn_vs_vit_train_loss,
+    plot_ex5_lr_vs_accuracy_by_family,
+    plot_ex5_params_vs_accuracy,
+    create_ex5_best_predictions_panel,
     CIFAR10_CLASSES
 )
 
@@ -313,6 +319,33 @@ def run_all_experiments(quick_test=False, results_root='results_comparative'):
     generate_comparative_report(
         results=all_results,
         save_path=os.path.join(results_root, 'comparative_report.txt')
+    )
+
+    # Report-focused Ex5 figures (5-6 key plots)
+    plot_ex5_accuracy_overview(
+        all_results,
+        save_path=os.path.join(results_root, 'report_01_accuracy_overview.png')
+    )
+    plot_ex5_family_mean_accuracy(
+        all_results,
+        save_path=os.path.join(results_root, 'report_02_family_mean_accuracy.png')
+    )
+    plot_ex5_best_cnn_vs_vit_train_loss(
+        all_results,
+        save_path=os.path.join(results_root, 'report_03_best_cnn_vs_vit_loss.png')
+    )
+    plot_ex5_lr_vs_accuracy_by_family(
+        all_results,
+        save_path=os.path.join(results_root, 'report_04_lr_vs_accuracy_by_family.png')
+    )
+    plot_ex5_params_vs_accuracy(
+        all_results,
+        save_path=os.path.join(results_root, 'report_05_params_vs_accuracy.png')
+    )
+    create_ex5_best_predictions_panel(
+        all_results,
+        results_root=results_root,
+        save_path=os.path.join(results_root, 'report_06_best_predictions_panel.png')
     )
     
     # Save summary JSON
