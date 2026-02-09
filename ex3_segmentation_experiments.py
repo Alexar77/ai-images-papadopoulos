@@ -140,6 +140,7 @@ def main():
     parser = argparse.ArgumentParser(description='SBD Semantic Segmentation')
     parser.add_argument('--epochs', type=int, default=10, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=8, help='Batch size')
+    parser.add_argument('--num_workers', type=int, default=2, help='DataLoader workers')
     parser.add_argument('--image_size', type=int, default=224, help='Image size')
     parser.add_argument('--results_dir', type=str, default='results_segmentation', help='Results directory')
     parser.add_argument('--quick_test', action='store_true', help='Quick test (3 epochs)')
@@ -164,7 +165,8 @@ def main():
     print("\nΦόρτωση SBD Dataset...")
     train_loader, val_loader, num_classes = load_sbd_dataset(
         batch_size=args.batch_size,
-        image_size=args.image_size
+        image_size=args.image_size,
+        num_workers=args.num_workers
     )
     
     all_results = {}

@@ -49,8 +49,8 @@ def run_comparative_experiment(
     """
     
     if quick_test:
-        num_epochs = 5
-        print("\n⚡ QUICK TEST MODE - Running only 5 epochs!\n")
+        num_epochs = 3
+        print("\n⚡ QUICK TEST MODE - Running only 3 epochs!\n")
     
     # Setup
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -194,7 +194,7 @@ def run_comparative_experiment(
     return results
 
 
-def run_all_experiments(quick_test=False, results_root='results_comparative'):
+def run_all_experiments(quick_test=False, results_root='results_comparative', full_grid=False):
     """Εκτέλεση όλων των comparative experiments"""
     
     all_results = []
@@ -203,99 +203,122 @@ def run_all_experiments(quick_test=False, results_root='results_comparative'):
     print("COMPARATIVE STUDY: CNN vs TRANSFORMER - CIFAR-10")
     print("="*70 + "\n")
     
-    # ============================================================================
-    # SERIES 1: CNN ARCHITECTURES
-    # ============================================================================
-    print("\n📊 SERIES 1: CNN Architectures")
-    print("-" * 70)
-    
-    cnn_configs = [
-        {'model_name': 'vgg11', 'lr': 0.001, 'image_size': 32},
-        {'model_name': 'resnet18', 'lr': 0.001, 'image_size': 32},
-        {'model_name': 'resnet50', 'lr': 0.001, 'image_size': 32},
-    ]
-    
-    for config in cnn_configs:
-        result = run_comparative_experiment(
-            architecture='cnn',
-            model_name=config['model_name'],
-            lr=config['lr'],
-            num_epochs=20 if not quick_test else 5,
-            batch_size=128,
-            optimizer_name='adam',
-            scheduler_name='cosine',
-            image_size=config['image_size'],
-            experiment_name=f"cnn_{config['model_name']}_baseline",
-            quick_test=quick_test,
-            results_root=results_root
-        )
-        all_results.append(result)
-    
-    # ============================================================================
-    # SERIES 2: VISION TRANSFORMERS
-    # ============================================================================
-    print("\n📊 SERIES 2: Vision Transformers")
-    print("-" * 70)
-    
-    vit_configs = [
-        {'model_name': 'tiny', 'lr': 0.001, 'batch_size': 64},
-        {'model_name': 'small', 'lr': 0.0005, 'batch_size': 32},
-    ]
-    
-    for config in vit_configs:
+    if full_grid:
+        print("\n[Mode] FULL GRID: original exhaustive setup")
+        # ============================================================================
+        # SERIES 1: CNN ARCHITECTURES
+        # ============================================================================
+        print("\n📊 SERIES 1: CNN Architectures")
+        print("-" * 70)
+        
+        cnn_configs = [
+            {'model_name': 'vgg11', 'lr': 0.001, 'image_size': 32},
+            {'model_name': 'resnet18', 'lr': 0.001, 'image_size': 32},
+            {'model_name': 'resnet50', 'lr': 0.001, 'image_size': 32},
+        ]
+        
+        for config in cnn_configs:
+            result = run_comparative_experiment(
+                architecture='cnn',
+                model_name=config['model_name'],
+                lr=config['lr'],
+                num_epochs=20 if not quick_test else 3,
+                batch_size=128,
+                optimizer_name='adam',
+                scheduler_name='cosine',
+                image_size=config['image_size'],
+                experiment_name=f"cnn_{config['model_name']}_baseline",
+                quick_test=quick_test,
+                results_root=results_root
+            )
+            all_results.append(result)
+        
+        # ============================================================================
+        # SERIES 2: VISION TRANSFORMERS
+        # ============================================================================
+        print("\n📊 SERIES 2: Vision Transformers")
+        print("-" * 70)
+        
+        vit_configs = [
+            {'model_name': 'tiny', 'lr': 0.001, 'batch_size': 64},
+            {'model_name': 'small', 'lr': 0.0005, 'batch_size': 32},
+        ]
+        
+        for config in vit_configs:
+            result = run_comparative_experiment(
+                architecture='vit',
+                model_name=config['model_name'],
+                lr=config['lr'],
+                num_epochs=30 if not quick_test else 3,
+                batch_size=config['batch_size'],
+                optimizer_name='adamw',
+                scheduler_name='cosine',
+                image_size=224,
+                experiment_name=f"vit_{config['model_name']}_baseline",
+                quick_test=quick_test,
+                results_root=results_root
+            )
+            all_results.append(result)
+        
+        # ============================================================================
+        # SERIES 3: HYPERPARAMETER COMPARISON (Best Models)
+        # ============================================================================
+        print("\n📊 SERIES 3: Hyperparameter Comparison")
+        print("-" * 70)
+        
+        for lr in [0.0005, 0.002]:
+            result = run_comparative_experiment(
+                architecture='cnn',
+                model_name='resnet18',
+                lr=lr,
+                num_epochs=20 if not quick_test else 3,
+                batch_size=128,
+                optimizer_name='adam',
+                scheduler_name='cosine',
+                image_size=32,
+                experiment_name=f"cnn_resnet18_lr{lr}",
+                quick_test=quick_test,
+                results_root=results_root
+            )
+            all_results.append(result)
+        
         result = run_comparative_experiment(
             architecture='vit',
-            model_name=config['model_name'],
-            lr=config['lr'],
-            num_epochs=30 if not quick_test else 5,
-            batch_size=config['batch_size'],
-            optimizer_name='adamw',
-            scheduler_name='cosine',
-            image_size=224,  # ViT needs larger images
-            experiment_name=f"vit_{config['model_name']}_baseline",
-            quick_test=quick_test,
-            results_root=results_root
-        )
-        all_results.append(result)
-    
-    # ============================================================================
-    # SERIES 3: HYPERPARAMETER COMPARISON (Best Models)
-    # ============================================================================
-    print("\n📊 SERIES 3: Hyperparameter Comparison")
-    print("-" * 70)
-    
-    # Best CNN with different LRs
-    for lr in [0.0005, 0.002]:
-        result = run_comparative_experiment(
-            architecture='cnn',
-            model_name='resnet18',
-            lr=lr,
-            num_epochs=20 if not quick_test else 5,
-            batch_size=128,
+            model_name='tiny',
+            lr=0.001,
+            num_epochs=30 if not quick_test else 3,
+            batch_size=64,
             optimizer_name='adam',
             scheduler_name='cosine',
-            image_size=32,
-            experiment_name=f"cnn_resnet18_lr{lr}",
+            image_size=224,
+            experiment_name='vit_tiny_adam',
             quick_test=quick_test,
             results_root=results_root
         )
         all_results.append(result)
-    
-    # Best ViT with different optimizers
-    result = run_comparative_experiment(
-        architecture='vit',
-        model_name='tiny',
-        lr=0.001,
-        num_epochs=30 if not quick_test else 5,
-        batch_size=64,
-        optimizer_name='adam',  # Try Adam instead of AdamW
-        scheduler_name='cosine',
-        image_size=224,
-        experiment_name=f"vit_tiny_adam",
-        quick_test=quick_test,
-        results_root=results_root
-    )
-    all_results.append(result)
+    else:
+        print("\n[Mode] COMPACT: 4 experiments (faster)")
+        compact_specs = [
+            dict(architecture='cnn', model_name='resnet18', lr=0.0005, num_epochs=10 if not quick_test else 3,
+                 batch_size=128, optimizer_name='adam', scheduler_name='cosine', image_size=32,
+                 experiment_name='cnn_resnet18_lr0.0005'),
+            dict(architecture='cnn', model_name='resnet18', lr=0.001, num_epochs=10 if not quick_test else 3,
+                 batch_size=128, optimizer_name='adam', scheduler_name='cosine', image_size=32,
+                 experiment_name='cnn_resnet18_lr0.001'),
+            dict(architecture='vit', model_name='tiny', lr=0.0005, num_epochs=12 if not quick_test else 3,
+                 batch_size=64, optimizer_name='adamw', scheduler_name='cosine', image_size=96,
+                 experiment_name='vit_tiny_lr0.0005'),
+            dict(architecture='vit', model_name='tiny', lr=0.001, num_epochs=12 if not quick_test else 3,
+                 batch_size=64, optimizer_name='adamw', scheduler_name='cosine', image_size=96,
+                 experiment_name='vit_tiny_lr0.001'),
+        ]
+        for spec in compact_specs:
+            result = run_comparative_experiment(
+                quick_test=quick_test,
+                results_root=results_root,
+                **spec
+            )
+            all_results.append(result)
     
     # ============================================================================
     # GENERATE COMPARISON VISUALIZATIONS
@@ -415,14 +438,16 @@ def run_all_experiments(quick_test=False, results_root='results_comparative'):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Comparative Study: CNN vs Transformer')
     parser.add_argument('--quick_test', action='store_true',
-                       help='Run quick test with 5 epochs')
+                       help='Run quick test with 3 epochs')
+    parser.add_argument('--full_grid', action='store_true',
+                       help='Run full experiment grid (slower)')
     parser.add_argument('--single', action='store_true',
                        help='Run single experiment')
     parser.add_argument('--architecture', type=str, default='cnn',
                        choices=['cnn', 'vit'])
     parser.add_argument('--model', type=str, default='resnet18')
     parser.add_argument('--lr', type=float, default=0.001)
-    parser.add_argument('--epochs', type=int, default=20)
+    parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--results_dir', type=str, default='results_comparative')
     
@@ -441,4 +466,8 @@ if __name__ == "__main__":
         )
     else:
         # Run all experiments
-        run_all_experiments(quick_test=args.quick_test, results_root=args.results_dir)
+        run_all_experiments(
+            quick_test=args.quick_test,
+            results_root=args.results_dir,
+            full_grid=args.full_grid
+        )

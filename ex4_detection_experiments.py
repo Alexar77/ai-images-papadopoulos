@@ -223,7 +223,8 @@ def run_detection_experiment(
     return results
 
 
-def run_all_experiments(quick_test=False, pretrained=True, data_dir='./data', results_root='results_detection'):
+def run_all_experiments(quick_test=False, pretrained=True, data_dir='./data',
+                        results_root='results_detection', full_grid=False):
     """Εκτέλεση όλων των experiments"""
     
     all_results = []
@@ -233,65 +234,88 @@ def run_all_experiments(quick_test=False, pretrained=True, data_dir='./data', re
     print("Faster R-CNN with different configurations")
     print("="*70 + "\n")
     
-    # Experiment 1: Different Learning Rates (ResNet50)
-    print("\n📊 SERIES 1: Σύγκριση Learning Rates (ResNet50)")
-    print("-" * 70)
-    for lr in [0.001, 0.005, 0.01]:
-        result = run_detection_experiment(
-            backbone='resnet50',
-            lr=lr,
-            num_epochs=5 if not quick_test else 3,
-            batch_size=4,
-            optimizer_name='sgd',
-            scheduler_name='step',
-            experiment_name=f"resnet50_lr{lr}",
-            quick_test=quick_test,
-            pretrained=pretrained,
-            data_dir=data_dir,
-            results_root=results_root
-        )
-        all_results.append(result)
-    
-    # Experiment 2: Different Backbones
-    print("\n📊 SERIES 2: Σύγκριση Backbones")
-    print("-" * 70)
-    for backbone in ['resnet50', 'mobilenet']:
-        if backbone == 'resnet50' and any(r['config']['backbone'] == 'resnet50' for r in all_results):
-            continue  # Skip if already run
+    if full_grid:
+        print("\n[Mode] FULL GRID: 6 experiments")
+        # Experiment 1: Different Learning Rates (ResNet50)
+        print("\n📊 SERIES 1: Σύγκριση Learning Rates (ResNet50)")
+        print("-" * 70)
+        for lr in [0.001, 0.005, 0.01]:
+            result = run_detection_experiment(
+                backbone='resnet50',
+                lr=lr,
+                num_epochs=5 if not quick_test else 3,
+                batch_size=4,
+                optimizer_name='sgd',
+                scheduler_name='step',
+                experiment_name=f"resnet50_lr{lr}",
+                quick_test=quick_test,
+                pretrained=pretrained,
+                data_dir=data_dir,
+                results_root=results_root
+            )
+            all_results.append(result)
         
-        result = run_detection_experiment(
-            backbone=backbone,
-            lr=0.005,
-            num_epochs=5 if not quick_test else 3,
-            batch_size=4,
-            optimizer_name='sgd',
-            scheduler_name='step',
-            experiment_name=f"{backbone}_baseline",
-            quick_test=quick_test,
-            pretrained=pretrained,
-            data_dir=data_dir,
-            results_root=results_root
-        )
-        all_results.append(result)
-    
-    # Experiment 3: Different Optimizers (ResNet50)
-    print("\n📊 SERIES 3: Σύγκριση Optimizers (ResNet50)")
-    print("-" * 70)
-    for opt in ['adam', 'adamw']:
-        result = run_detection_experiment(
-            backbone='resnet50',
-            lr=0.001,  # Lower LR for Adam/AdamW
-            num_epochs=5 if not quick_test else 3,
-            batch_size=4,
-            optimizer_name=opt,
-            scheduler_name='cosine',
-            experiment_name=f"resnet50_{opt}",
-            quick_test=quick_test,
-            pretrained=pretrained,
-            data_dir=data_dir,
-            results_root=results_root
-        )
-        all_results.append(result)
+        # Experiment 2: Different Backbones
+        print("\n📊 SERIES 2: Σύγκριση Backbones")
+        print("-" * 70)
+        for backbone in ['resnet50', 'mobilenet']:
+            if backbone == 'resnet50' and any(r['config']['backbone'] == 'resnet50' for r in all_results):
+                continue
+            
+            result = run_detection_experiment(
+                backbone=backbone,
+                lr=0.005,
+                num_epochs=5 if not quick_test else 3,
+                batch_size=4,
+                optimizer_name='sgd',
+                scheduler_name='step',
+                experiment_name=f"{backbone}_baseline",
+                quick_test=quick_test,
+                pretrained=pretrained,
+                data_dir=data_dir,
+                results_root=results_root
+            )
+            all_results.append(result)
+        
+        # Experiment 3: Different Optimizers (ResNet50)
+        print("\n📊 SERIES 3: Σύγκριση Optimizers (ResNet50)")
+        print("-" * 70)
+        for opt in ['adam', 'adamw']:
+            result = run_detection_experiment(
+                backbone='resnet50',
+                lr=0.001,
+                num_epochs=5 if not quick_test else 3,
+                batch_size=4,
+                optimizer_name=opt,
+                scheduler_name='cosine',
+                experiment_name=f"resnet50_{opt}",
+                quick_test=quick_test,
+                pretrained=pretrained,
+                data_dir=data_dir,
+                results_root=results_root
+            )
+            all_results.append(result)
+    else:
+        print("\n[Mode] COMPACT: 3 experiments (faster)")
+        compact_specs = [
+            dict(backbone='resnet50', lr=0.005, optimizer_name='sgd',
+                 scheduler_name='step', experiment_name='resnet50_baseline'),
+            dict(backbone='mobilenet', lr=0.005, optimizer_name='sgd',
+                 scheduler_name='step', experiment_name='mobilenet_baseline'),
+            dict(backbone='resnet50', lr=0.001, optimizer_name='adam',
+                 scheduler_name='cosine', experiment_name='resnet50_adam'),
+        ]
+        for spec in compact_specs:
+            result = run_detection_experiment(
+                num_epochs=4 if not quick_test else 2,
+                batch_size=4,
+                quick_test=quick_test,
+                pretrained=pretrained,
+                data_dir=data_dir,
+                results_root=results_root,
+                **spec
+            )
+            all_results.append(result)
     
     # Generate comparison plot
     print("\n" + "="*70)
@@ -381,12 +405,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Object Detection Experiments')
     parser.add_argument('--quick_test', action='store_true',
                        help='Run quick test with 3 epochs')
+    parser.add_argument('--full_grid', action='store_true',
+                       help='Run full experiment grid (slower)')
     parser.add_argument('--single', action='store_true',
                        help='Run single experiment')
     parser.add_argument('--backbone', type=str, default='resnet50',
                        choices=['resnet50', 'mobilenet'])
     parser.add_argument('--lr', type=float, default=0.005)
-    parser.add_argument('--epochs', type=int, default=5)
+    parser.add_argument('--epochs', type=int, default=4)
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--results_dir', type=str, default='results_detection')
     parser.add_argument('--data_dir', type=str, default='./data')
@@ -413,5 +439,6 @@ if __name__ == "__main__":
             quick_test=args.quick_test,
             pretrained=not args.no_pretrained,
             data_dir=args.data_dir,
-            results_root=args.results_dir
+            results_root=args.results_dir,
+            full_grid=args.full_grid
         )
