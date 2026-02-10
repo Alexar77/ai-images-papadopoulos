@@ -63,7 +63,11 @@ def run_segmentation_experiment(experiment_name, hyperparameters,
     )
     
     # Setup training
-    criterion = nn.CrossEntropyLoss(ignore_index=255)
+    # Reduce background dominance: penalize background errors less than foreground.
+    bg_weight = hyperparameters.get('background_weight', 0.2)
+    class_weights = torch.ones(num_classes, dtype=torch.float32, device=device)
+    class_weights[0] = bg_weight
+    criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=255)
     optimizer = get_optimizer(
         model,
         optimizer_name=hyperparameters.get('optimizer', 'adam'),
@@ -128,7 +132,7 @@ def run_segmentation_experiment(experiment_name, hyperparameters,
     }
     
     print(f"\nΠείραμα '{experiment_name}' ολοκληρώθηκε!")
-    print(f"  Best Validation mIoU: {results['val_miou']:.2f}%")
+    print(f"  Best Validation mIoU (foreground classes): {results['val_miou']:.2f}%")
     print(f"  Best Pixel Accuracy: {results['val_pixel_acc']:.2f}%")
     print(f"  Training Time: {training_time:.2f}s")
     print("=" * 80)
@@ -144,8 +148,8 @@ def main():
     parser.add_argument('--image_size', type=int, default=224, help='Image size')
     parser.add_argument('--results_dir', type=str, default='results_segmentation', help='Results directory')
     parser.add_argument('--quick_test', action='store_true', help='Quick test (3 epochs)')
-    parser.add_argument('--full_grid', action='store_true',
-                        help='Run full 8-experiment grid (slower, for thorough study)')
+    parser.add_argument('--background_weight', type=float, default=0.2,
+                        help='Loss weight for background class (class 0). Lower => less background bias.')
     args = parser.parse_args()
     
     if args.quick_test:
@@ -171,125 +175,50 @@ def main():
     
     all_results = {}
     
-    if args.full_grid:
-        print("\n[Mode] FULL GRID: 8 experiments")
-        # ====================================================================
-        # ΠΕΙΡΑΜΑ 1: Σύγκριση U-Net sizes
-        # ====================================================================
-        print("\n" + "=" * 80)
-        print("ΣΕΙΡΑ ΠΕΙΡΑΜΑΤΩΝ 1: ΣΥΓΚΡΙΣΗ U-NET SIZES")
-        print("=" * 80)
-        
-        base_config = {
-            'optimizer': 'adam',
-            'learning_rate': 0.001,
-            'weight_decay': 1e-4,
-            'scheduler': 'step',
-            'early_stopping_patience': 6
-        }
-        
-        for base_ch in [32, 64]:
-            config = base_config.copy()
-            config['base_channels'] = base_ch
-            
-            all_results[f'UNet_base{base_ch}'] = run_segmentation_experiment(
-                f'UNet_BaseChannels_{base_ch}',
-                config,
-                train_loader, val_loader, num_classes,
-                num_epochs=args.epochs,
-                results_dir=results_dir
-            )
-        
-        # ====================================================================
-        # ΠΕΙΡΑΜΑ 2: Σύγκριση Optimizers
-        # ====================================================================
-        print("\n" + "=" * 80)
-        print("ΣΕΙΡΑ ΠΕΙΡΑΜΑΤΩΝ 2: ΣΥΓΚΡΙΣΗ OPTIMIZERS")
-        print("=" * 80)
-        
-        for opt in ['adam', 'adamw', 'sgd']:
-            config = base_config.copy()
-            config['optimizer'] = opt
-            config['base_channels'] = 64
-            
-            all_results[f'Optimizer_{opt}'] = run_segmentation_experiment(
-                f'Optimizer_{opt.upper()}',
-                config,
-                train_loader, val_loader, num_classes,
-                num_epochs=args.epochs,
-                results_dir=results_dir
-            )
-        
-        # ====================================================================
-        # ΠΕΙΡΑΜΑ 3: Σύγκριση Learning Rates
-        # ====================================================================
-        print("\n" + "=" * 80)
-        print("ΣΕΙΡΑ ΠΕΙΡΑΜΑΤΩΝ 3: ΣΥΓΚΡΙΣΗ LEARNING RATES")
-        print("=" * 80)
-        
-        for lr in [0.0001, 0.001, 0.01]:
-            config = base_config.copy()
-            config['learning_rate'] = lr
-            config['base_channels'] = 64
-            
-            all_results[f'LR_{lr}'] = run_segmentation_experiment(
-                f'LearningRate_{lr}',
-                config,
-                train_loader, val_loader, num_classes,
-                num_epochs=args.epochs,
-                results_dir=results_dir
-            )
-    else:
-        print("\n[Mode] COMPACT: 3 experiments (optimized for ~2h on T4)")
-        print("Tip: use --full_grid for the original exhaustive setup.")
+    print("\n[Mode] Assignment-3: 2 hyperparameters x 2 values")
+    print("Hyperparameters under study: optimizer (2 values), learning_rate (2 values)")
 
-        compact_plan = [
-            (
-                'UNet_base64',
-                'UNet_BaseChannels_64',
-                {
-                    'optimizer': 'adamw',
-                    'learning_rate': 0.0003,
-                    'weight_decay': 1e-4,
-                    'scheduler': 'step',
-                    'base_channels': 64,
-                    'early_stopping_patience': 4
-                }
-            ),
-            (
-                'Optimizer_sgd',
-                'Optimizer_SGD',
-                {
-                    'optimizer': 'sgd',
-                    'learning_rate': 0.0003,
-                    'weight_decay': 1e-4,
-                    'scheduler': 'step',
-                    'base_channels': 64,
-                    'early_stopping_patience': 4
-                }
-            ),
-            (
-                'LR_0.001',
-                'LearningRate_0.001',
-                {
-                    'optimizer': 'adamw',
-                    'learning_rate': 0.001,
-                    'weight_decay': 1e-4,
-                    'scheduler': 'step',
-                    'base_channels': 64,
-                    'early_stopping_patience': 4
-                }
-            ),
-        ]
+    base_config = {
+        'weight_decay': 1e-4,
+        'scheduler': 'step',
+        'base_channels': 64,
+        'early_stopping_patience': 4,
+        'background_weight': args.background_weight
+    }
 
-        for result_key, experiment_name, config in compact_plan:
-            all_results[result_key] = run_segmentation_experiment(
-                experiment_name,
-                config,
-                train_loader, val_loader, num_classes,
-                num_epochs=args.epochs,
-                results_dir=results_dir
-            )
+    # Hyperparameter 1: optimizer (fixed lr)
+    print("\n" + "=" * 80)
+    print("ΣΕΙΡΑ ΠΕΙΡΑΜΑΤΩΝ 1: ΣΥΓΚΡΙΣΗ OPTIMIZERS (2 τιμές)")
+    print("=" * 80)
+    for opt in ['adamw', 'sgd']:
+        config = base_config.copy()
+        config['optimizer'] = opt
+        config['learning_rate'] = 0.0003
+
+        all_results[f'Optimizer_{opt}'] = run_segmentation_experiment(
+            f'Optimizer_{opt.upper()}',
+            config,
+            train_loader, val_loader, num_classes,
+            num_epochs=args.epochs,
+            results_dir=results_dir
+        )
+
+    # Hyperparameter 2: learning rate (fixed optimizer)
+    print("\n" + "=" * 80)
+    print("ΣΕΙΡΑ ΠΕΙΡΑΜΑΤΩΝ 2: ΣΥΓΚΡΙΣΗ LEARNING RATES (2 τιμές)")
+    print("=" * 80)
+    for lr in [0.0003, 0.001]:
+        config = base_config.copy()
+        config['optimizer'] = 'adamw'
+        config['learning_rate'] = lr
+
+        all_results[f'LR_{lr}'] = run_segmentation_experiment(
+            f'LearningRate_{lr}',
+            config,
+            train_loader, val_loader, num_classes,
+            num_epochs=args.epochs,
+            results_dir=results_dir
+        )
     
     # ========================================================================
     # ΑΝΑΦΟΡΕΣ

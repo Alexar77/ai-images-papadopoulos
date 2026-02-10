@@ -92,8 +92,7 @@ def run_detection_experiment(
     results_root='results_detection'
 ):
     """
-    Εκτέλεση ενός detection experiment
-    """
+    Εκτέλεση ενός detection experiment    """
     
     if quick_test:
         num_epochs = 3

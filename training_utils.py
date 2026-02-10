@@ -320,29 +320,42 @@ class SegmentationTrainer:
             'epoch_times': []
         }
     
-    def calculate_metrics(self, preds, masks, num_classes=21):
-        """Calculate pixel accuracy and mean IoU"""
+    def calculate_metrics(
+        self,
+        preds,
+        masks,
+        num_classes=21,
+        ignore_index=255,
+        include_background=False
+    ):
+        """Calculate pixel accuracy and mean IoU with proper ignore handling."""
         preds = preds.cpu().numpy()
         masks = masks.cpu().numpy()
-        
-        # Pixel accuracy
-        pixel_acc = (preds == masks).sum() / masks.size
-        
-        # Mean IoU
+
+        valid_mask = (masks != ignore_index)
+        valid_pixels = valid_mask.sum()
+        if valid_pixels == 0:
+            return 0.0, 0.0
+
+        # Pixel accuracy on valid (non-void) pixels only
+        pixel_acc = (preds[valid_mask] == masks[valid_mask]).sum() / valid_pixels
+
+        # Mean IoU over foreground classes by default (exclude class 0: background)
         ious = []
-        for cls in range(num_classes):
-            pred_cls = (preds == cls)
-            mask_cls = (masks == cls)
-            
+        class_start = 0 if include_background else 1
+        for cls in range(class_start, num_classes):
+            pred_cls = (preds == cls) & valid_mask
+            mask_cls = (masks == cls) & valid_mask
+
             intersection = (pred_cls & mask_cls).sum()
             union = (pred_cls | mask_cls).sum()
-            
+
             if union > 0:
                 ious.append(intersection / union)
-        
-        mean_iou = np.mean(ious) if ious else 0
-        
-        return pixel_acc, mean_iou
+
+        mean_iou = float(np.mean(ious)) if ious else 0.0
+
+        return float(pixel_acc), mean_iou
     
     def train_epoch(self, train_loader, criterion, optimizer, num_classes=21):
         """Train for one epoch"""
