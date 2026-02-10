@@ -556,6 +556,8 @@ class DetectionTrainer:
         loss_box_reg = 0
         loss_objectness = 0
         loss_rpn_box_reg = 0
+        valid_batches = 0
+        skipped_non_finite = 0
         
         pbar = tqdm(train_loader, desc='Training')
         for images, targets in pbar:
@@ -566,19 +568,39 @@ class DetectionTrainer:
             loss_dict = self.model(images, targets)
             
             losses = sum(loss for loss in loss_dict.values())
+            loss_value = losses.item()
+            if not np.isfinite(loss_value):
+                skipped_non_finite += 1
+                continue
             
             losses.backward()
+            # Keep detector training numerically stable for compact runs / high LR configs.
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
             optimizer.step()
             
-            total_loss += losses.item()
+            valid_batches += 1
+            total_loss += loss_value
             loss_classifier += loss_dict.get('loss_classifier', torch.tensor(0)).item()
             loss_box_reg += loss_dict.get('loss_box_reg', torch.tensor(0)).item()
             loss_objectness += loss_dict.get('loss_objectness', torch.tensor(0)).item()
             loss_rpn_box_reg += loss_dict.get('loss_rpn_box_reg', torch.tensor(0)).item()
             
-            pbar.set_postfix({'loss': f'{losses.item():.4f}'})
+            pbar.set_postfix({'loss': f'{loss_value:.4f}'})
         
-        num_batches = len(train_loader)
+        if skipped_non_finite > 0:
+            print(f"⚠ Skipped {skipped_non_finite} batches due to non-finite loss.")
+
+        num_batches = valid_batches if valid_batches > 0 else len(train_loader)
+        if valid_batches == 0:
+            nan_val = float('nan')
+            return {
+                'total_loss': nan_val,
+                'loss_classifier': nan_val,
+                'loss_box_reg': nan_val,
+                'loss_objectness': nan_val,
+                'loss_rpn_box_reg': nan_val
+            }
+
         return {
             'total_loss': total_loss / num_batches,
             'loss_classifier': loss_classifier / num_batches,
@@ -624,6 +646,10 @@ class DetectionTrainer:
             if scheduler and hasattr(scheduler, 'get_last_lr'):
                 print(f"Learning Rate: {scheduler.get_last_lr()[0]:.6f}")
             print("-" * 70)
+
+            if not np.isfinite(losses['total_loss']):
+                print("\n⚠ Non-finite loss detected. Stopping this experiment early.")
+                break
             
             if should_stop:
                 print(f"\n⚠️ Early stopping triggered after {epoch+1} epochs (patience: {early_stopping_patience})")

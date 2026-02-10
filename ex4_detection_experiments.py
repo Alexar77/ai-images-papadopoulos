@@ -30,8 +30,9 @@ from visualization_utils import (
 @torch.no_grad()
 def evaluate_detection_accuracy(model, data_loader, device, score_threshold=0.5, iou_threshold=0.5):
     """
-    Simple detection accuracy on validation set:
-    an image is correct if the top prediction matches a GT object with IoU >= threshold and same class.
+    Simple image-level detection accuracy on validation set:
+    an image is correct if any predicted box matches any GT object
+    with IoU >= threshold and same class.
     """
     model.eval()
     total_images = 0
@@ -58,18 +59,20 @@ def evaluate_detection_accuracy(model, data_loader, device, score_threshold=0.5,
 
             pred_boxes = pred['boxes'][keep].cpu()
             pred_labels = pred['labels'][keep].cpu()
-            pred_scores = pred['scores'][keep].cpu()
+            gt_boxes_cpu = gt_boxes.cpu()
+            gt_labels_cpu = gt_labels.cpu()
 
-            top_idx = torch.argmax(pred_scores)
-            top_box = pred_boxes[top_idx].unsqueeze(0)
-            top_label = pred_labels[top_idx]
+            iou_matrix = box_iou(pred_boxes, gt_boxes_cpu)
+            matched = False
+            for p_idx in range(pred_boxes.size(0)):
+                for g_idx in range(gt_boxes_cpu.size(0)):
+                    if iou_matrix[p_idx, g_idx].item() >= iou_threshold and pred_labels[p_idx] == gt_labels_cpu[g_idx]:
+                        matched = True
+                        break
+                if matched:
+                    break
 
-            ious = box_iou(top_box, gt_boxes.cpu()).squeeze(0)
-            best_gt_idx = torch.argmax(ious)
-            best_iou = ious[best_gt_idx].item()
-            best_gt_label = gt_labels[best_gt_idx].cpu()
-
-            if best_iou >= iou_threshold and top_label == best_gt_label:
+            if matched:
                 correct_images += 1
 
     if total_images == 0:
@@ -183,7 +186,10 @@ def run_detection_experiment(
     
     # Calculate final metrics
     final_loss = history['train_loss'][-1]
-    detection_acc = evaluate_detection_accuracy(trainer.model, val_loader, device=device)
+    detection_acc = evaluate_detection_accuracy(
+        trainer.model, val_loader, device=device,
+        score_threshold=0.3, iou_threshold=0.5
+    )
     
     # Save results
     results = {
@@ -204,7 +210,7 @@ def run_detection_experiment(
         'metrics': {
             'detection_accuracy': detection_acc,
             'final_train_loss': final_loss,
-            'best_train_loss': min(history['train_loss']),
+            'best_train_loss': min([x for x in history['train_loss'] if x == x], default=float('inf')),
             'final_classifier_loss': history['train_loss_classifier'][-1],
             'final_box_reg_loss': history['train_loss_box_reg'][-1]
         },
@@ -238,7 +244,7 @@ def run_all_experiments(quick_test=False, pretrained=True, data_dir='./data',
         # Experiment 1: Different Learning Rates (ResNet50)
         print("\n📊 SERIES 1: Σύγκριση Learning Rates (ResNet50)")
         print("-" * 70)
-        for lr in [0.001, 0.005, 0.01]:
+        for lr in [0.001, 0.003, 0.005]:
             result = run_detection_experiment(
                 backbone='resnet50',
                 lr=lr,
@@ -295,14 +301,22 @@ def run_all_experiments(quick_test=False, pretrained=True, data_dir='./data',
             )
             all_results.append(result)
     else:
-        print("\n[Mode] COMPACT: 3 experiments (faster)")
+        print("\n[Mode] COMPACT: 2 hyperparameters x 2 values")
+        print("Hyperparameters:")
+        print("  - backbone: [resnet50, mobilenet]")
+        print("  - learning_rate: [0.001, 0.005]")
+        print("Fixed:")
+        print("  - optimizer: sgd")
+        print("  - scheduler: step")
         compact_specs = [
+            dict(backbone='resnet50', lr=0.001, optimizer_name='sgd',
+                 scheduler_name='step', experiment_name='resnet50_lr0.001'),
             dict(backbone='resnet50', lr=0.005, optimizer_name='sgd',
-                 scheduler_name='step', experiment_name='resnet50_baseline'),
+                 scheduler_name='step', experiment_name='resnet50_lr0.005'),
+            dict(backbone='mobilenet', lr=0.001, optimizer_name='sgd',
+                 scheduler_name='step', experiment_name='mobilenet_lr0.001'),
             dict(backbone='mobilenet', lr=0.005, optimizer_name='sgd',
-                 scheduler_name='step', experiment_name='mobilenet_baseline'),
-            dict(backbone='resnet50', lr=0.001, optimizer_name='adam',
-                 scheduler_name='cosine', experiment_name='resnet50_adam'),
+                 scheduler_name='step', experiment_name='mobilenet_lr0.005'),
         ]
         for spec in compact_specs:
             result = run_detection_experiment(

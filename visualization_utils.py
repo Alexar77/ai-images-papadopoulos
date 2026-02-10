@@ -853,7 +853,7 @@ def visualize_detections(
         if isinstance(img, torch.Tensor):
             img = img.cpu().numpy()
         
-        if img.max() <= 1.0:
+        if img.ndim == 3 and img.shape[0] == 3 and (img.min() < 0.0 or img.max() > 1.0):
             mean = np.array([0.485, 0.456, 0.406]).reshape(3, 1, 1)
             std = np.array([0.229, 0.224, 0.225]).reshape(3, 1, 1)
             img = img * std + mean
