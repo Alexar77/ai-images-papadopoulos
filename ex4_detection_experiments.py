@@ -5,9 +5,11 @@
 import torch
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
+from torchvision.ops import box_iou
 import os
 import json
 import argparse
+import shutil
 from datetime import datetime
 
 from pet_data_loaders import load_pet_detection_dataset
@@ -17,8 +19,66 @@ from visualization_utils import (
     visualize_detections,
     plot_detection_training_curves,
     plot_comparison_results as plot_detection_comparison,
-    generate_experiment_report
+    plot_ex4_accuracy_overview,
+    plot_ex4_total_loss_curves,
+    plot_ex4_best_loss_components,
+    plot_ex4_lr_vs_accuracy,
+    plot_ex4_time_vs_accuracy,
 )
+
+
+@torch.no_grad()
+def evaluate_detection_accuracy(model, data_loader, device, score_threshold=0.5, iou_threshold=0.5):
+    """
+    Simple image-level detection accuracy on validation set:
+    an image is correct if any predicted box matches any GT object
+    with IoU >= threshold and same class.
+    """
+    model.eval()
+    total_images = 0
+    correct_images = 0
+
+    for images, targets in data_loader:
+        images_device = [img.to(device) for img in images]
+        outputs = model(images_device)
+
+        for pred, target in zip(outputs, targets):
+            gt_boxes = target['boxes']
+            gt_labels = target['labels']
+            if gt_boxes.numel() == 0:
+                continue
+
+            total_images += 1
+
+            if pred['boxes'].numel() == 0:
+                continue
+
+            keep = pred['scores'] >= score_threshold
+            if keep.sum().item() == 0:
+                continue
+
+            pred_boxes = pred['boxes'][keep].cpu()
+            pred_labels = pred['labels'][keep].cpu()
+            gt_boxes_cpu = gt_boxes.cpu()
+            gt_labels_cpu = gt_labels.cpu()
+
+            iou_matrix = box_iou(pred_boxes, gt_boxes_cpu)
+            matched = False
+            for p_idx in range(pred_boxes.size(0)):
+                for g_idx in range(gt_boxes_cpu.size(0)):
+                    if iou_matrix[p_idx, g_idx].item() >= iou_threshold and pred_labels[p_idx] == gt_labels_cpu[g_idx]:
+                        matched = True
+                        break
+                if matched:
+                    break
+
+            if matched:
+                correct_images += 1
+
+    if total_images == 0:
+        return 0.0
+
+    return 100.0 * correct_images / total_images
 
 
 def run_detection_experiment(
@@ -29,11 +89,13 @@ def run_detection_experiment(
     optimizer_name='sgd',
     scheduler_name='step',
     experiment_name=None,
-    quick_test=False
+    quick_test=False,
+    pretrained=True,
+    data_dir='./data',
+    results_root='results_detection'
 ):
     """
-    Εκτέλεση ενός detection experiment
-    """
+    Εκτέλεση ενός detection experiment    """
     
     if quick_test:
         num_epochs = 3
@@ -54,6 +116,7 @@ def run_detection_experiment(
     print(f"Learning Rate: {lr}")
     print(f"Optimizer: {optimizer_name}")
     print(f"Scheduler: {scheduler_name}")
+    print(f"Pretrained: {pretrained}")
     print(f"Epochs: {num_epochs}")
     print(f"Batch Size: {batch_size}")
     print(f"Device: {device}")
@@ -61,12 +124,13 @@ def run_detection_experiment(
     
     # Load data
     train_loader, val_loader, num_classes = load_pet_detection_dataset(
+        data_dir=data_dir,
         batch_size=batch_size,
         num_workers=0  # Set to 0 for Windows compatibility
     )
     
     # Create model
-    model = get_detection_model(num_classes=num_classes, backbone=backbone, pretrained=True)
+    model = get_detection_model(num_classes=num_classes, backbone=backbone, pretrained=pretrained)
     
     # Optimizer
     params = [p for p in model.parameters() if p.requires_grad]
@@ -103,7 +167,7 @@ def run_detection_experiment(
     images, predictions = trainer.get_predictions(val_loader, num_samples=4, score_threshold=0.5)
     
     # Create results directory
-    results_dir = 'results_detection'
+    results_dir = results_root
     os.makedirs(results_dir, exist_ok=True)
     exp_dir = os.path.join(results_dir, experiment_name)
     os.makedirs(exp_dir, exist_ok=True)
@@ -122,9 +186,16 @@ def run_detection_experiment(
     
     # Calculate final metrics
     final_loss = history['train_loss'][-1]
+    detection_acc = evaluate_detection_accuracy(
+        trainer.model, val_loader, device=device,
+        score_threshold=0.3, iou_threshold=0.5
+    )
     
     # Save results
     results = {
+        'name': experiment_name,
+        'test_acc': detection_acc,
+        'val_acc': detection_acc,
         'experiment_name': experiment_name,
         'config': {
             'backbone': backbone,
@@ -133,11 +204,13 @@ def run_detection_experiment(
             'scheduler': scheduler_name,
             'num_epochs': num_epochs,
             'batch_size': batch_size,
+            'pretrained': pretrained,
             'device': device
         },
         'metrics': {
+            'detection_accuracy': detection_acc,
             'final_train_loss': final_loss,
-            'best_train_loss': min(history['train_loss']),
+            'best_train_loss': min([x for x in history['train_loss'] if x == x], default=float('inf')),
             'final_classifier_loss': history['train_loss_classifier'][-1],
             'final_box_reg_loss': history['train_loss_box_reg'][-1]
         },
@@ -148,13 +221,15 @@ def run_detection_experiment(
         json.dump({k: v for k, v in results.items() if k != 'history'}, f, indent=4)
     
     print(f"\n✓ Results saved to: {exp_dir}")
+    print(f"✓ Detection Accuracy (IoU@0.5): {detection_acc:.2f}%")
     print(f"✓ Final Training Loss: {final_loss:.4f}")
     print("="*70 + "\n")
     
     return results
 
 
-def run_all_experiments(quick_test=False):
+def run_all_experiments(quick_test=False, pretrained=True, data_dir='./data',
+                        results_root='results_detection', full_grid=False):
     """Εκτέλεση όλων των experiments"""
     
     all_results = []
@@ -164,74 +239,135 @@ def run_all_experiments(quick_test=False):
     print("Faster R-CNN with different configurations")
     print("="*70 + "\n")
     
-    # Experiment 1: Different Learning Rates (ResNet50)
-    print("\n📊 SERIES 1: Σύγκριση Learning Rates (ResNet50)")
-    print("-" * 70)
-    for lr in [0.001, 0.005, 0.01]:
-        result = run_detection_experiment(
-            backbone='resnet50',
-            lr=lr,
-            num_epochs=5 if not quick_test else 3,
-            batch_size=4,
-            optimizer_name='sgd',
-            scheduler_name='step',
-            experiment_name=f"resnet50_lr{lr}",
-            quick_test=quick_test
-        )
-        all_results.append(result)
-    
-    # Experiment 2: Different Backbones
-    print("\n📊 SERIES 2: Σύγκριση Backbones")
-    print("-" * 70)
-    for backbone in ['resnet50', 'mobilenet']:
-        if backbone == 'resnet50' and any(r['config']['backbone'] == 'resnet50' for r in all_results):
-            continue  # Skip if already run
+    if full_grid:
+        print("\n[Mode] FULL GRID: 6 experiments")
+        # Experiment 1: Different Learning Rates (ResNet50)
+        print("\n📊 SERIES 1: Σύγκριση Learning Rates (ResNet50)")
+        print("-" * 70)
+        for lr in [0.001, 0.003, 0.005]:
+            result = run_detection_experiment(
+                backbone='resnet50',
+                lr=lr,
+                num_epochs=5 if not quick_test else 3,
+                batch_size=4,
+                optimizer_name='sgd',
+                scheduler_name='step',
+                experiment_name=f"resnet50_lr{lr}",
+                quick_test=quick_test,
+                pretrained=pretrained,
+                data_dir=data_dir,
+                results_root=results_root
+            )
+            all_results.append(result)
         
-        result = run_detection_experiment(
-            backbone=backbone,
-            lr=0.005,
-            num_epochs=5 if not quick_test else 3,
-            batch_size=4,
-            optimizer_name='sgd',
-            scheduler_name='step',
-            experiment_name=f"{backbone}_baseline",
-            quick_test=quick_test
-        )
-        all_results.append(result)
-    
-    # Experiment 3: Different Optimizers (ResNet50)
-    print("\n📊 SERIES 3: Σύγκριση Optimizers (ResNet50)")
-    print("-" * 70)
-    for opt in ['adam', 'adamw']:
-        result = run_detection_experiment(
-            backbone='resnet50',
-            lr=0.001,  # Lower LR for Adam/AdamW
-            num_epochs=5 if not quick_test else 3,
-            batch_size=4,
-            optimizer_name=opt,
-            scheduler_name='cosine',
-            experiment_name=f"resnet50_{opt}",
-            quick_test=quick_test
-        )
-        all_results.append(result)
+        # Experiment 2: Different Backbones
+        print("\n📊 SERIES 2: Σύγκριση Backbones")
+        print("-" * 70)
+        for backbone in ['resnet50', 'mobilenet']:
+            if backbone == 'resnet50' and any(r['config']['backbone'] == 'resnet50' for r in all_results):
+                continue
+            
+            result = run_detection_experiment(
+                backbone=backbone,
+                lr=0.005,
+                num_epochs=5 if not quick_test else 3,
+                batch_size=4,
+                optimizer_name='sgd',
+                scheduler_name='step',
+                experiment_name=f"{backbone}_baseline",
+                quick_test=quick_test,
+                pretrained=pretrained,
+                data_dir=data_dir,
+                results_root=results_root
+            )
+            all_results.append(result)
+        
+        # Experiment 3: Different Optimizers (ResNet50)
+        print("\n📊 SERIES 3: Σύγκριση Optimizers (ResNet50)")
+        print("-" * 70)
+        for opt in ['adam', 'adamw']:
+            result = run_detection_experiment(
+                backbone='resnet50',
+                lr=0.001,
+                num_epochs=5 if not quick_test else 3,
+                batch_size=4,
+                optimizer_name=opt,
+                scheduler_name='cosine',
+                experiment_name=f"resnet50_{opt}",
+                quick_test=quick_test,
+                pretrained=pretrained,
+                data_dir=data_dir,
+                results_root=results_root
+            )
+            all_results.append(result)
+    else:
+        print("\n[Mode] COMPACT: 2 hyperparameters x 2 values")
+        print("Hyperparameters:")
+        print("  - backbone: [resnet50, mobilenet]")
+        print("  - learning_rate: [0.001, 0.005]")
+        print("Fixed:")
+        print("  - optimizer: sgd")
+        print("  - scheduler: step")
+        compact_specs = [
+            dict(backbone='resnet50', lr=0.001, optimizer_name='sgd',
+                 scheduler_name='step', experiment_name='resnet50_lr0.001'),
+            dict(backbone='resnet50', lr=0.005, optimizer_name='sgd',
+                 scheduler_name='step', experiment_name='resnet50_lr0.005'),
+            dict(backbone='mobilenet', lr=0.001, optimizer_name='sgd',
+                 scheduler_name='step', experiment_name='mobilenet_lr0.001'),
+            dict(backbone='mobilenet', lr=0.005, optimizer_name='sgd',
+                 scheduler_name='step', experiment_name='mobilenet_lr0.005'),
+        ]
+        for spec in compact_specs:
+            result = run_detection_experiment(
+                num_epochs=4 if not quick_test else 2,
+                batch_size=4,
+                quick_test=quick_test,
+                pretrained=pretrained,
+                data_dir=data_dir,
+                results_root=results_root,
+                **spec
+            )
+            all_results.append(result)
     
     # Generate comparison plot
     print("\n" + "="*70)
     print("Generating comparison plots...")
     
-    results_for_plot = [
-        {
-            'name': r['experiment_name'],
-            'history': r['history'],
-            'final_loss': r['metrics']['final_train_loss']
-        }
-        for r in all_results
-    ]
-    
     plot_detection_comparison(
-        results_for_plot,
-        save_path='results_detection/all_experiments_comparison.png'
+        all_results,
+        save_path=os.path.join(results_root, 'all_experiments_comparison.png')
     )
+
+    # Report-focused Ex4 figures (5-6 key plots)
+    plot_ex4_accuracy_overview(
+        all_results,
+        save_path=os.path.join(results_root, 'report_01_detection_accuracy_overview.png')
+    )
+    plot_ex4_total_loss_curves(
+        all_results,
+        save_path=os.path.join(results_root, 'report_02_total_loss_curves.png')
+    )
+    plot_ex4_best_loss_components(
+        all_results,
+        save_path=os.path.join(results_root, 'report_03_best_loss_components.png')
+    )
+    plot_ex4_lr_vs_accuracy(
+        all_results,
+        save_path=os.path.join(results_root, 'report_04_lr_vs_accuracy.png')
+    )
+    plot_ex4_time_vs_accuracy(
+        all_results,
+        save_path=os.path.join(results_root, 'report_05_time_vs_accuracy.png')
+    )
+
+    # Best qualitative detection panel
+    best_result = max(all_results, key=lambda x: x.get('test_acc', x['metrics']['detection_accuracy']))
+    src_panel = os.path.join(results_root, best_result['experiment_name'], 'detections.png')
+    dst_panel = os.path.join(results_root, 'report_06_best_detection_panel.png')
+    if os.path.exists(src_panel):
+        shutil.copyfile(src_panel, dst_panel)
+        print(f"✓ Ex4 best detection panel saved: {dst_panel}")
     
     # Save summary
     summary = {
@@ -247,7 +383,7 @@ def run_all_experiments(quick_test=False):
         ]
     }
     
-    with open('results_detection/experiments_summary.json', 'w') as f:
+    with open(os.path.join(results_root, 'experiments_summary.json'), 'w') as f:
         json.dump(summary, f, indent=4)
     
     # Print summary
@@ -257,9 +393,9 @@ def run_all_experiments(quick_test=False):
     print(f"Total experiments: {len(all_results)}\n")
     
     # Sort by final loss
-    sorted_results = sorted(all_results, key=lambda x: x['metrics']['final_train_loss'])
+    sorted_results = sorted(all_results, key=lambda x: x['metrics']['detection_accuracy'], reverse=True)
     
-    print("Results (sorted by final training loss):")
+    print("Results (sorted by detection accuracy IoU@0.5):")
     print("-" * 70)
     for i, result in enumerate(sorted_results, 1):
         config = result['config']
@@ -267,13 +403,14 @@ def run_all_experiments(quick_test=False):
         print(f"{i}. {result['experiment_name']}")
         print(f"   Backbone: {config['backbone']} | LR: {config['learning_rate']} | "
               f"Optimizer: {config['optimizer']}")
-        print(f"   Final Loss: {metrics['final_train_loss']:.4f} | "
+        print(f"   Det Acc (IoU@0.5): {metrics['detection_accuracy']:.2f}% | "
+              f"Final Loss: {metrics['final_train_loss']:.4f} | "
               f"Best Loss: {metrics['best_train_loss']:.4f}")
         print()
     
     print("="*70)
-    print(f"✓ All results saved to: results_detection/")
-    print(f"✓ Summary saved to: results_detection/experiments_summary.json")
+    print(f"✓ All results saved to: {results_root}/")
+    print(f"✓ Summary saved to: {results_root}/experiments_summary.json")
     print("="*70 + "\n")
 
 
@@ -281,13 +418,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Object Detection Experiments')
     parser.add_argument('--quick_test', action='store_true',
                        help='Run quick test with 3 epochs')
+    parser.add_argument('--full_grid', action='store_true',
+                       help='Run full experiment grid (slower)')
     parser.add_argument('--single', action='store_true',
                        help='Run single experiment')
     parser.add_argument('--backbone', type=str, default='resnet50',
                        choices=['resnet50', 'mobilenet'])
     parser.add_argument('--lr', type=float, default=0.005)
-    parser.add_argument('--epochs', type=int, default=5)
+    parser.add_argument('--epochs', type=int, default=4)
     parser.add_argument('--batch_size', type=int, default=4)
+    parser.add_argument('--results_dir', type=str, default='results_detection')
+    parser.add_argument('--data_dir', type=str, default='./data')
+    parser.add_argument('--no_pretrained', action='store_true',
+                       help='Disable pretrained weights')
     
     args = parser.parse_args()
     
@@ -298,8 +441,17 @@ if __name__ == "__main__":
             lr=args.lr,
             num_epochs=args.epochs,
             batch_size=args.batch_size,
-            quick_test=args.quick_test
+            quick_test=args.quick_test,
+            pretrained=not args.no_pretrained,
+            data_dir=args.data_dir,
+            results_root=args.results_dir
         )
     else:
         # Run all experiments
-        run_all_experiments(quick_test=args.quick_test)
+        run_all_experiments(
+            quick_test=args.quick_test,
+            pretrained=not args.no_pretrained,
+            data_dir=args.data_dir,
+            results_root=args.results_dir,
+            full_grid=args.full_grid
+        )

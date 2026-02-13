@@ -7,17 +7,30 @@ import torch
 import torch.nn as nn
 import time
 import os
+import json
+import argparse
 from datetime import datetime
 
 from pet_data_loaders import load_pet_classification_dataset, PET_CLASSES
 from ex2_transfer_learning_models import get_transfer_model
 from training_utils import ClassificationTrainer, get_optimizer, get_scheduler
 from visualization_utils import (plot_training_curves, plot_comparison_results,
-                           visualize_classification_predictions, generate_experiment_report)
+                           visualize_classification_predictions, generate_experiment_report,
+                           plot_ex2_accuracy_overview, plot_ex2_architecture_train_accuracy_curves,
+                           plot_ex2_frozen_vs_finetuned_curves, plot_ex2_learning_rate_train_loss_curves,
+                           plot_ex2_time_vs_accuracy, plot_ex2_learning_rate_vs_accuracy)
+
+
+def save_experiment_results(all_results, save_dir):
+    """Save experiment results to JSON."""
+    output_path = os.path.join(save_dir, 'experiment_results.json')
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(all_results, f, indent=2, ensure_ascii=False)
+    print(f"✓ Results saved: {output_path}")
 
 
 def run_transfer_experiment(experiment_name, model_name, hyperparameters,
-                           train_loader, val_loader, test_loader, 
+                           train_loader, test_loader, 
                            num_classes, num_epochs=20, results_dir='results_transfer'):
     """
     Εκτέλεση ενός transfer learning πειράματος
@@ -50,7 +63,7 @@ def run_transfer_experiment(experiment_name, model_name, hyperparameters,
     optimizer = get_optimizer(
         model,
         optimizer_name=hyperparameters.get('optimizer', 'adam'),
-        learning_rate=hyperparameters.get('learning_rate', 0.001),
+        lr=hyperparameters.get('learning_rate', 0.001),
         weight_decay=hyperparameters.get('weight_decay', 1e-4)
     )
     scheduler = get_scheduler(
@@ -60,11 +73,11 @@ def run_transfer_experiment(experiment_name, model_name, hyperparameters,
     )
     
     # Training
-    trainer = Trainer(model, device=device)
+    trainer = ClassificationTrainer(model, device=device)
     start_time = time.time()
     history = trainer.train(
-        train_loader, val_loader, criterion, optimizer,
-        num_epochs=num_epochs, scheduler=scheduler, verbose=True,
+        train_loader, None, criterion, optimizer,
+        num_epochs=num_epochs, scheduler=scheduler,
         early_stopping_patience=5
     )
     training_time = time.time() - start_time
@@ -78,13 +91,36 @@ def run_transfer_experiment(experiment_name, model_name, hyperparameters,
         save_path=os.path.join(exp_dir, 'training_curves.png'),
         title=f'{experiment_name} - Training Curves'
     )
+
+    images, labels, predictions, probabilities = trainer.get_predictions(
+        test_loader, num_samples=12
+    )
+    visualize_classification_predictions(
+        images, labels, predictions, probabilities,
+        class_names=PET_CLASSES,
+        save_path=os.path.join(exp_dir, 'sample_predictions.png'),
+        title=f'{experiment_name} - Sample Predictions'
+    )
     
     # Save model
     torch.save(model.state_dict(), os.path.join(exp_dir, 'model.pth'))
     
     # Results
+    best_train_acc = max(history['train_acc']) if history.get('train_acc') else 0.0
     results = {
-        'val_acc': max(history['val_acc']),
+        'name': experiment_name,
+        'config': {
+            'model_name': model_name,
+            **hyperparameters
+        },
+        'metrics': {
+            'best_train_acc': best_train_acc,
+            'test_acc': test_acc,
+            'test_loss': test_loss,
+            'total_training_time': training_time,
+            'parameters': {'total': model_info['total_params']}
+        },
+        'train_acc': best_train_acc,
         'test_acc': test_acc,
         'test_loss': test_loss,
         'total_time': training_time,
@@ -94,7 +130,7 @@ def run_transfer_experiment(experiment_name, model_name, hyperparameters,
     }
     
     print(f"\nΠείραμα '{experiment_name}' ολοκληρώθηκε!")
-    print(f"  Best Validation Accuracy: {results['val_acc']:.2f}%")
+    print(f"  Best Training Accuracy: {results['train_acc']:.2f}%")
     print(f"  Test Accuracy: {results['test_acc']:.2f}%")
     print(f"  Training Time: {training_time:.2f}s")
     print("=" * 80)
@@ -103,11 +139,10 @@ def run_transfer_experiment(experiment_name, model_name, hyperparameters,
 
 
 def main():
-    import argparse
-    
     parser = argparse.ArgumentParser(description='Oxford Pet Transfer Learning')
     parser.add_argument('--epochs', type=int, default=20, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
+    parser.add_argument('--results_dir', type=str, default='results_transfer', help='Results directory')
     parser.add_argument('--quick_test', action='store_true', help='Quick test with 5 epochs')
     args = parser.parse_args()
     
@@ -117,7 +152,7 @@ def main():
     
     # Setup
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_dir = os.path.join('results_transfer', f'experiments_{timestamp}')
+    results_dir = os.path.join(args.results_dir, f'experiments_{timestamp}')
     os.makedirs(results_dir, exist_ok=True)
     
     print("=" * 80)
@@ -126,11 +161,10 @@ def main():
     
     # Load data
     print("\nΦόρτωση Oxford-IIIT Pet Dataset...")
-    train_loader, val_loader, test_loader, num_classes = load_oxford_pet(
+    train_loader, test_loader, num_classes = load_pet_classification_dataset(
         batch_size=args.batch_size,
         num_workers=2
     )
-    
     all_results = {}
     
     # ========================================================================
@@ -155,7 +189,7 @@ def main():
             f'Architecture_{arch}',
             arch,
             base_config,
-            train_loader, val_loader, test_loader,
+            train_loader, test_loader,
             num_classes,
             num_epochs=args.epochs,
             results_dir=results_dir
@@ -177,7 +211,7 @@ def main():
             f'ResNet18_{mode}',
             'resnet18',
             config,
-            train_loader, val_loader, test_loader,
+            train_loader, test_loader,
             num_classes,
             num_epochs=args.epochs,
             results_dir=results_dir
@@ -200,7 +234,7 @@ def main():
             f'LearningRate_{lr}',
             'resnet18',
             config,
-            train_loader, val_loader, test_loader,
+            train_loader, test_loader,
             num_classes,
             num_epochs=args.epochs,
             results_dir=results_dir
@@ -217,7 +251,7 @@ def main():
     arch_results = {k: v for k, v in all_results.items() if k.startswith('Arch_')}
     if arch_results:
         plot_comparison_results(
-            arch_results,
+            list(arch_results.values()),
             save_path=os.path.join(results_dir, 'comparison_architectures.png')
         )
     
@@ -225,7 +259,7 @@ def main():
     mode_results = {k: v for k, v in all_results.items() if k.startswith('Mode_')}
     if mode_results:
         plot_comparison_results(
-            mode_results,
+            list(mode_results.values()),
             save_path=os.path.join(results_dir, 'comparison_frozen_vs_finetuned.png')
         )
     
@@ -233,21 +267,47 @@ def main():
     lr_results = {k: v for k, v in all_results.items() if k.startswith('LR_')}
     if lr_results:
         plot_comparison_results(
-            lr_results,
+            list(lr_results.values()),
             save_path=os.path.join(results_dir, 'comparison_learning_rates.png')
         )
     
     # Overall comparison
     plot_comparison_results(
-        all_results,
+        list(all_results.values()),
         save_path=os.path.join(results_dir, 'comparison_all_experiments.png')
     )
     
     # Save results
     save_experiment_results(all_results, save_dir=results_dir)
     generate_experiment_report(
-        all_results,
+        list(all_results.values()),
         save_path=os.path.join(results_dir, 'experiment_report.txt')
+    )
+
+    # Report-focused Ex2 figures (5-6 key plots)
+    plot_ex2_accuracy_overview(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_01_accuracy_overview.png')
+    )
+    plot_ex2_architecture_train_accuracy_curves(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_02_architecture_train_curves.png')
+    )
+    plot_ex2_frozen_vs_finetuned_curves(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_03_frozen_vs_finetuned.png')
+    )
+    plot_ex2_learning_rate_train_loss_curves(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_04_lr_train_loss_curves.png')
+    )
+    plot_ex2_time_vs_accuracy(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_05_time_vs_accuracy.png')
+    )
+    plot_ex2_learning_rate_vs_accuracy(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_06_lr_vs_accuracy.png')
     )
     
     print("\n" + "=" * 80)

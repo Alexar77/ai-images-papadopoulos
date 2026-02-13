@@ -10,11 +10,45 @@ from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR, ReduceLROnPlatea
 from tqdm import tqdm
 import time
 import numpy as np
+import copy
 
 
 # ============================================================================
 # OPTIMIZERS & SCHEDULERS (Shared)
 # ============================================================================
+
+
+class EarlyStoppingController:
+    """Shared early stopping controller for all trainers."""
+
+    def __init__(self, patience=None, mode='max', min_delta=0.0):
+        self.patience = patience
+        self.mode = mode
+        self.min_delta = min_delta
+        self.best_value = None
+        self.best_state = None
+        self.patience_counter = 0
+
+    def _is_improvement(self, value):
+        if self.best_value is None:
+            return True
+        if self.mode == 'max':
+            return value > self.best_value + self.min_delta
+        if self.mode == 'min':
+            return value < self.best_value - self.min_delta
+        raise ValueError(f"Unknown early-stopping mode: {self.mode}")
+
+    def update(self, value, model):
+        improved = self._is_improvement(value)
+        if improved:
+            self.best_value = value
+            self.best_state = copy.deepcopy(model.state_dict())
+            self.patience_counter = 0
+            return improved, False
+
+        self.patience_counter += 1
+        should_stop = bool(self.patience and self.patience_counter >= self.patience)
+        return improved, should_stop
 
 def get_optimizer(model, optimizer_name='adam', lr=0.001, weight_decay=0.0):
     """Factory function for optimizers"""
@@ -153,53 +187,61 @@ class ClassificationTrainer:
         print(f"\nΈναρξη εκπαίδευσης για {num_epochs} epochs...")
         print(f"Device: {self.device}")
         print("=" * 70)
-        
-        best_val_acc = 0
-        best_model_state = None
-        patience_counter = 0
+
+        use_validation = val_loader is not None
+        early_stop = EarlyStoppingController(
+            patience=early_stopping_patience,
+            mode='max' if use_validation else 'min'
+        )
         
         for epoch in range(num_epochs):
             start_time = time.time()
             
             train_loss, train_acc = self.train_epoch(train_loader, criterion, optimizer)
-            val_loss, val_acc = self.evaluate(val_loader, criterion)
+            if use_validation:
+                val_loss, val_acc = self.evaluate(val_loader, criterion)
+            else:
+                val_loss, val_acc = None, None
             
             if scheduler is not None:
                 if isinstance(scheduler, ReduceLROnPlateau):
-                    scheduler.step(val_loss)
+                    scheduler.step(val_loss if use_validation else train_loss)
                 else:
                     scheduler.step()
             
-            if val_acc > best_val_acc:
-                best_val_acc = val_acc
-                best_model_state = self.model.state_dict().copy()
-                patience_counter = 0
-            else:
-                patience_counter += 1
+            monitor_value = val_acc if use_validation else train_loss
+            _, should_stop = early_stop.update(monitor_value, self.model)
             
             epoch_time = time.time() - start_time
             self.history['train_loss'].append(train_loss)
             self.history['train_acc'].append(train_acc)
-            self.history['val_loss'].append(val_loss)
-            self.history['val_acc'].append(val_acc)
+            if use_validation:
+                self.history['val_loss'].append(val_loss)
+                self.history['val_acc'].append(val_acc)
             self.history['epoch_times'].append(epoch_time)
             
             print(f"\nEpoch [{epoch+1}/{num_epochs}] - Time: {epoch_time:.2f}s")
             print(f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
-            print(f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%")
+            if use_validation:
+                print(f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%")
             if scheduler is not None and hasattr(scheduler, 'get_last_lr'):
                 print(f"Learning Rate: {scheduler.get_last_lr()[0]:.6f}")
             print("-" * 70)
             
-            if early_stopping_patience and patience_counter >= early_stopping_patience:
-                print(f"\n⚠ Early stopping triggered after {epoch+1} epochs")
+            if should_stop:
+                print(f"\n⚠ Early stopping triggered after {epoch+1} epochs (patience: {early_stopping_patience})")
                 break
-        
-        if best_model_state is not None:
-            self.model.load_state_dict(best_model_state)
+
+        if early_stop.best_state is not None:
+            self.model.load_state_dict(early_stop.best_state)
         
         print(f"\nΕκπαίδευση ολοκληρώθηκε!")
-        print(f"Best Validation Accuracy: {best_val_acc:.2f}%")
+        if use_validation:
+            best_val_acc = early_stop.best_value if early_stop.best_value is not None else 0.0
+            print(f"Best Validation Accuracy: {best_val_acc:.2f}%")
+        else:
+            best_train_loss = early_stop.best_value if early_stop.best_value is not None else float('inf')
+            print(f"Best Training Loss (early-stop monitor): {best_train_loss:.4f}")
         print("=" * 70)
         
         return self.history
@@ -278,29 +320,42 @@ class SegmentationTrainer:
             'epoch_times': []
         }
     
-    def calculate_metrics(self, preds, masks, num_classes=21):
-        """Calculate pixel accuracy and mean IoU"""
+    def calculate_metrics(
+        self,
+        preds,
+        masks,
+        num_classes=21,
+        ignore_index=255,
+        include_background=False
+    ):
+        """Calculate pixel accuracy and mean IoU with proper ignore handling."""
         preds = preds.cpu().numpy()
         masks = masks.cpu().numpy()
-        
-        # Pixel accuracy
-        pixel_acc = (preds == masks).sum() / masks.size
-        
-        # Mean IoU
+
+        valid_mask = (masks != ignore_index)
+        valid_pixels = valid_mask.sum()
+        if valid_pixels == 0:
+            return 0.0, 0.0
+
+        # Pixel accuracy on valid (non-void) pixels only
+        pixel_acc = (preds[valid_mask] == masks[valid_mask]).sum() / valid_pixels
+
+        # Mean IoU over foreground classes by default (exclude class 0: background)
         ious = []
-        for cls in range(num_classes):
-            pred_cls = (preds == cls)
-            mask_cls = (masks == cls)
-            
+        class_start = 0 if include_background else 1
+        for cls in range(class_start, num_classes):
+            pred_cls = (preds == cls) & valid_mask
+            mask_cls = (masks == cls) & valid_mask
+
             intersection = (pred_cls & mask_cls).sum()
             union = (pred_cls | mask_cls).sum()
-            
+
             if union > 0:
                 ious.append(intersection / union)
-        
-        mean_iou = np.mean(ious) if ious else 0
-        
-        return pixel_acc, mean_iou
+
+        mean_iou = float(np.mean(ious)) if ious else 0.0
+
+        return float(pixel_acc), mean_iou
     
     def train_epoch(self, train_loader, criterion, optimizer, num_classes=21):
         """Train for one epoch"""
@@ -369,16 +424,19 @@ class SegmentationTrainer:
         optimizer,
         num_epochs=10,
         scheduler=None,
-        num_classes=21
+        num_classes=21,
+        early_stopping_patience=None
     ):
         """Full training loop"""
         
         print(f"\nΈναρξη εκπαίδευσης για {num_epochs} epochs...")
         print(f"Device: {self.device}")
         print("=" * 70)
-        
-        best_iou = 0
-        best_model_state = None
+
+        early_stop = EarlyStoppingController(
+            patience=early_stopping_patience,
+            mode='max'
+        )
         
         for epoch in range(num_epochs):
             start_time = time.time()
@@ -396,9 +454,7 @@ class SegmentationTrainer:
                 else:
                     scheduler.step()
             
-            if val_iou > best_iou:
-                best_iou = val_iou
-                best_model_state = self.model.state_dict().copy()
+            _, should_stop = early_stop.update(val_iou, self.model)
             
             epoch_time = time.time() - start_time
             self.history['train_loss'].append(train_loss)
@@ -415,11 +471,16 @@ class SegmentationTrainer:
             if scheduler and hasattr(scheduler, 'get_last_lr'):
                 print(f"Learning Rate: {scheduler.get_last_lr()[0]:.6f}")
             print("-" * 70)
-        
-        if best_model_state:
-            self.model.load_state_dict(best_model_state)
+
+            if should_stop:
+                print(f"\n⚠ Early stopping triggered after {epoch+1} epochs (patience: {early_stopping_patience})")
+                break
+
+        if early_stop.best_state is not None:
+            self.model.load_state_dict(early_stop.best_state)
         
         print(f"\nΕκπαίδευση ολοκληρώθηκε!")
+        best_iou = early_stop.best_value if early_stop.best_value is not None else 0.0
         print(f"Best Validation mIoU: {best_iou:.4f}")
         print("=" * 70)
         
@@ -495,6 +556,8 @@ class DetectionTrainer:
         loss_box_reg = 0
         loss_objectness = 0
         loss_rpn_box_reg = 0
+        valid_batches = 0
+        skipped_non_finite = 0
         
         pbar = tqdm(train_loader, desc='Training')
         for images, targets in pbar:
@@ -505,19 +568,39 @@ class DetectionTrainer:
             loss_dict = self.model(images, targets)
             
             losses = sum(loss for loss in loss_dict.values())
+            loss_value = losses.item()
+            if not np.isfinite(loss_value):
+                skipped_non_finite += 1
+                continue
             
             losses.backward()
+            # Keep detector training numerically stable for compact runs / high LR configs.
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
             optimizer.step()
             
-            total_loss += losses.item()
+            valid_batches += 1
+            total_loss += loss_value
             loss_classifier += loss_dict.get('loss_classifier', torch.tensor(0)).item()
             loss_box_reg += loss_dict.get('loss_box_reg', torch.tensor(0)).item()
             loss_objectness += loss_dict.get('loss_objectness', torch.tensor(0)).item()
             loss_rpn_box_reg += loss_dict.get('loss_rpn_box_reg', torch.tensor(0)).item()
             
-            pbar.set_postfix({'loss': f'{losses.item():.4f}'})
+            pbar.set_postfix({'loss': f'{loss_value:.4f}'})
         
-        num_batches = len(train_loader)
+        if skipped_non_finite > 0:
+            print(f"⚠ Skipped {skipped_non_finite} batches due to non-finite loss.")
+
+        num_batches = valid_batches if valid_batches > 0 else len(train_loader)
+        if valid_batches == 0:
+            nan_val = float('nan')
+            return {
+                'total_loss': nan_val,
+                'loss_classifier': nan_val,
+                'loss_box_reg': nan_val,
+                'loss_objectness': nan_val,
+                'loss_rpn_box_reg': nan_val
+            }
+
         return {
             'total_loss': total_loss / num_batches,
             'loss_classifier': loss_classifier / num_batches,
@@ -532,10 +615,11 @@ class DetectionTrainer:
         print(f"\nΈναρξη εκπαίδευσης για {num_epochs} epochs...")
         print(f"Device: {self.device}")
         print("=" * 70)
-        
-        best_loss = float('inf')
-        best_model_state = None
-        patience_counter = 0
+
+        early_stop = EarlyStoppingController(
+            patience=early_stopping_patience,
+            mode='min'
+        )
         
         for epoch in range(num_epochs):
             start_time = time.time()
@@ -545,12 +629,7 @@ class DetectionTrainer:
             if scheduler is not None:
                 scheduler.step()
             
-            if losses['total_loss'] < best_loss:
-                best_loss = losses['total_loss']
-                best_model_state = self.model.state_dict().copy()
-                patience_counter = 0  # Reset patience counter
-            else:
-                patience_counter += 1
+            _, should_stop = early_stop.update(losses['total_loss'], self.model)
             
             epoch_time = time.time() - start_time
             self.history['train_loss'].append(losses['total_loss'])
@@ -567,16 +646,20 @@ class DetectionTrainer:
             if scheduler and hasattr(scheduler, 'get_last_lr'):
                 print(f"Learning Rate: {scheduler.get_last_lr()[0]:.6f}")
             print("-" * 70)
+
+            if not np.isfinite(losses['total_loss']):
+                print("\n⚠ Non-finite loss detected. Stopping this experiment early.")
+                break
             
-            # Early stopping check
-            if early_stopping_patience and patience_counter >= early_stopping_patience:
+            if should_stop:
                 print(f"\n⚠️ Early stopping triggered after {epoch+1} epochs (patience: {early_stopping_patience})")
                 break
-        
-        if best_model_state:
-            self.model.load_state_dict(best_model_state)
+
+        if early_stop.best_state is not None:
+            self.model.load_state_dict(early_stop.best_state)
         
         print(f"\nΕκπαίδευση ολοκληρώθηκε!")
+        best_loss = early_stop.best_value if early_stop.best_value is not None else float('inf')
         print(f"Best Training Loss: {best_loss:.4f}")
         print("=" * 70)
         

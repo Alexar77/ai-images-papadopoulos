@@ -7,16 +7,28 @@ import torch
 import time
 import os
 import argparse
+import json
 from datetime import datetime
 
-from ex1_vanilla_cnn import VanillaCNN, get_model_summary
+from ex1_vanilla_cnn import VanillaCNN
 from cifar_data_loaders import load_cifar100_dataset
 from training_utils import ClassificationTrainer, get_criterion, get_optimizer, get_scheduler
 from visualization_utils import (plot_training_curves, plot_comparison_results, 
-                           visualize_classification_predictions, generate_experiment_report)
+                           visualize_classification_predictions, generate_experiment_report,
+                           plot_ex1_accuracy_overview, plot_ex1_optimizer_train_accuracy_curves,
+                           plot_ex1_learning_rate_loss_curves, plot_ex1_generalization_gap,
+                           plot_ex1_time_vs_accuracy, plot_ex1_learning_rate_vs_accuracy)
 
 
-def run_experiment(experiment_name, hyperparameters, train_loader, val_loader, 
+def save_experiment_results(all_results, save_dir):
+    """Save experiment results to JSON."""
+    output_path = os.path.join(save_dir, 'experiment_results.json')
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(all_results, f, indent=2, ensure_ascii=False)
+    print(f"✓ Results saved: {output_path}")
+
+
+def run_experiment(experiment_name, hyperparameters, train_loader, 
                    test_loader, num_epochs=30, results_dir='results'):
     """
     Εκτέλεση ενός πειράματος με συγκεκριμένες υπερ-παραμέτρους
@@ -24,7 +36,7 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     Args:
         experiment_name: Όνομα πειράματος
         hyperparameters: Dictionary με υπερ-παραμέτρους
-        train_loader, val_loader, test_loader: Data loaders
+        train_loader, test_loader: Data loaders
         num_epochs: Αριθμός epochs
         results_dir: Φάκελος αποθήκευσης αποτελεσμάτων
     """
@@ -46,12 +58,11 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     model = VanillaCNN(num_classes=100)
     
     # Setup training components
-    criterion = get_criterion(hyperparameters.get('criterion', 'cross_entropy'))
+    criterion = get_criterion(hyperparameters.get('criterion', 'crossentropy'))
     optimizer = get_optimizer(
         model,
         optimizer_name=hyperparameters.get('optimizer', 'sgd'),
-        learning_rate=hyperparameters.get('learning_rate', 0.01),
-        momentum=hyperparameters.get('momentum', 0.9),
+        lr=hyperparameters.get('learning_rate', 0.01),
         weight_decay=hyperparameters.get('weight_decay', 5e-4)
     )
     scheduler = get_scheduler(
@@ -61,13 +72,13 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     )
     
     # Initialize trainer
-    trainer = Trainer(model, device=device)
+    trainer = ClassificationTrainer(model, device=device)
     
     # Train
     start_time = time.time()
     history = trainer.train(
-        train_loader, val_loader, criterion, optimizer,
-        num_epochs=num_epochs, scheduler=scheduler, verbose=True,
+        train_loader, None, criterion, optimizer,
+        num_epochs=num_epochs, scheduler=scheduler,
         early_stopping_patience=10
     )
     training_time = time.time() - start_time
@@ -76,7 +87,9 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     test_loss, test_acc = trainer.test(test_loader, criterion)
     
     # Get sample predictions
-    images, predictions, labels = trainer.get_predictions(test_loader, num_samples=16)
+    images, labels, predictions, probabilities = trainer.get_predictions(
+        test_loader, num_samples=16
+    )
     
     # Plot training curves
     plot_training_curves(
@@ -86,9 +99,10 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     )
     
     # Plot sample predictions
-    plot_sample_predictions(
-        images, predictions, labels, CIFAR100_CLASSES,
-        num_samples=16,
+    class_names = [f'Class {i}' for i in range(100)]
+    visualize_classification_predictions(
+        images, labels, predictions, probabilities,
+        class_names=class_names,
         save_path=os.path.join(exp_dir, 'sample_predictions.png')
     )
     
@@ -96,8 +110,18 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     torch.save(model.state_dict(), os.path.join(exp_dir, 'model.pth'))
     
     # Prepare results
+    best_train_acc = max(history['train_acc']) if history.get('train_acc') else 0.0
     results = {
-        'val_acc': max(history['val_acc']),
+        'name': experiment_name,
+        'config': hyperparameters,
+        'metrics': {
+            'best_train_acc': best_train_acc,
+            'test_acc': test_acc,
+            'test_loss': test_loss,
+            'total_training_time': training_time,
+            'parameters': {'total': model.count_parameters()}
+        },
+        'train_acc': best_train_acc,
         'test_acc': test_acc,
         'test_loss': test_loss,
         'total_time': training_time,
@@ -106,7 +130,7 @@ def run_experiment(experiment_name, hyperparameters, train_loader, val_loader,
     }
     
     print(f"\nΠείραμα '{experiment_name}' ολοκληρώθηκε!")
-    print(f"  Best Validation Accuracy: {results['val_acc']:.2f}%")
+    print(f"  Best Training Accuracy: {results['train_acc']:.2f}%")
     print(f"  Test Accuracy: {results['test_acc']:.2f}%")
     print(f"  Training Time: {training_time:.2f} seconds")
     print("=" * 80)
@@ -140,7 +164,7 @@ def main():
     
     # Load data
     print("\nΦόρτωση δεδομένων CIFAR-100...")
-    train_loader, val_loader, test_loader, num_classes = load_cifar100_dataset(
+    train_loader, _, test_loader, num_classes = load_cifar100_dataset(
         batch_size=args.batch_size,
         num_workers=2
     )
@@ -158,18 +182,17 @@ def main():
     base_config = {
         'optimizer': 'sgd',
         'learning_rate': 0.01,
-        'momentum': 0.9,
         'weight_decay': 5e-4,
         'scheduler': 'cosine'
     }
     
     # CrossEntropyLoss (βασική επιλογή)
     exp_config = base_config.copy()
-    exp_config['criterion'] = 'cross_entropy'
+    exp_config['criterion'] = 'crossentropy'
     all_results['Loss_CrossEntropy'] = run_experiment(
         'Loss_CrossEntropy',
         exp_config,
-        train_loader, val_loader, test_loader,
+        train_loader, test_loader,
         num_epochs=args.epochs,
         results_dir=results_dir
     )
@@ -182,9 +205,8 @@ def main():
     print("=" * 80)
     
     base_config = {
-        'criterion': 'cross_entropy',
+        'criterion': 'crossentropy',
         'learning_rate': 0.01,
-        'momentum': 0.9,
         'weight_decay': 5e-4,
         'scheduler': 'cosine'
     }
@@ -195,7 +217,7 @@ def main():
     all_results['Optimizer_SGD'] = run_experiment(
         'Optimizer_SGD',
         exp_config,
-        train_loader, val_loader, test_loader,
+        train_loader, test_loader,
         num_epochs=args.epochs,
         results_dir=results_dir
     )
@@ -206,7 +228,7 @@ def main():
     all_results['Optimizer_Adam'] = run_experiment(
         'Optimizer_Adam',
         exp_config,
-        train_loader, val_loader, test_loader,
+        train_loader, test_loader,
         num_epochs=args.epochs,
         results_dir=results_dir
     )
@@ -217,7 +239,7 @@ def main():
     all_results['Optimizer_AdamW'] = run_experiment(
         'Optimizer_AdamW',
         exp_config,
-        train_loader, val_loader, test_loader,
+        train_loader, test_loader,
         num_epochs=args.epochs,
         results_dir=results_dir
     )
@@ -228,7 +250,7 @@ def main():
     all_results['Optimizer_RMSprop'] = run_experiment(
         'Optimizer_RMSprop',
         exp_config,
-        train_loader, val_loader, test_loader,
+        train_loader, test_loader,
         num_epochs=args.epochs,
         results_dir=results_dir
     )
@@ -241,9 +263,8 @@ def main():
     print("=" * 80)
     
     base_config = {
-        'criterion': 'cross_entropy',
+        'criterion': 'crossentropy',
         'optimizer': 'sgd',
-        'momentum': 0.9,
         'weight_decay': 5e-4,
         'scheduler': 'cosine'
     }
@@ -256,7 +277,7 @@ def main():
         all_results[f'LR_{lr}'] = run_experiment(
             f'LearningRate_{lr}',
             exp_config,
-            train_loader, val_loader, test_loader,
+            train_loader, test_loader,
             num_epochs=args.epochs,
             results_dir=results_dir
         )
@@ -274,7 +295,7 @@ def main():
     loss_results = {k: v for k, v in all_results.items() if k.startswith('Loss_')}
     if loss_results:
         plot_comparison_results(
-            loss_results,
+            list(loss_results.values()),
             save_path=os.path.join(results_dir, 'comparison_loss_functions.png')
         )
     
@@ -282,7 +303,7 @@ def main():
     opt_results = {k: v for k, v in all_results.items() if k.startswith('Optimizer_')}
     if opt_results:
         plot_comparison_results(
-            opt_results,
+            list(opt_results.values()),
             save_path=os.path.join(results_dir, 'comparison_optimizers.png')
         )
     
@@ -290,14 +311,40 @@ def main():
     lr_results = {k: v for k, v in all_results.items() if k.startswith('LR_')}
     if lr_results:
         plot_comparison_results(
-            lr_results,
+            list(lr_results.values()),
             save_path=os.path.join(results_dir, 'comparison_learning_rates.png')
         )
     
     # 4. Overall comparison
     plot_comparison_results(
-        all_results,
+        list(all_results.values()),
         save_path=os.path.join(results_dir, 'comparison_all_experiments.png')
+    )
+
+    # 5. Report-focused Ex1 figures (5-6 key plots)
+    plot_ex1_accuracy_overview(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_01_accuracy_overview.png')
+    )
+    plot_ex1_optimizer_train_accuracy_curves(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_02_optimizer_curves.png')
+    )
+    plot_ex1_learning_rate_loss_curves(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_03_lr_train_loss_curves.png')
+    )
+    plot_ex1_generalization_gap(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_04_generalization_gap.png')
+    )
+    plot_ex1_time_vs_accuracy(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_05_time_vs_accuracy.png')
+    )
+    plot_ex1_learning_rate_vs_accuracy(
+        all_results,
+        save_path=os.path.join(results_dir, 'report_06_lr_vs_accuracy.png')
     )
     
     # Save results to JSON
@@ -305,7 +352,7 @@ def main():
     
     # Generate text report
     generate_experiment_report(
-        all_results,
+        list(all_results.values()),
         save_path=os.path.join(results_dir, 'experiment_report.txt')
     )
     

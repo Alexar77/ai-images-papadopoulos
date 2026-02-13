@@ -8,6 +8,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 
 
 def get_sbd_transforms(image_size=256):
@@ -39,12 +40,25 @@ class SBDSegmentation(torch.utils.data.Dataset):
     """Custom Dataset για SBD με transforms"""
     
     def __init__(self, root, image_set='train', download=True, image_size=256):
-        self.dataset = torchvision.datasets.SBDataset(
-            root=root,
-            image_set=image_set,
-            mode='segmentation',
-            download=download
-        )
+        try:
+            self.dataset = torchvision.datasets.SBDataset(
+                root=root,
+                image_set=image_set,
+                mode='segmentation',
+                download=download
+            )
+        except Exception as e:
+            # Some torchvision versions fail on repeated download attempts
+            # if extracted folders already exist. Retry without download.
+            if download and "already exists" in str(e):
+                self.dataset = torchvision.datasets.SBDataset(
+                    root=root,
+                    image_set=image_set,
+                    mode='segmentation',
+                    download=False
+                )
+            else:
+                raise
         self.image_transform, self.mask_transform = get_sbd_transforms(image_size)
     
     def __len__(self):
@@ -71,11 +85,19 @@ def load_sbd_dataset(data_dir='./data', batch_size=8, num_workers=2, image_size=
         train_loader, val_loader, num_classes
     """
     
+    # If SBD files are already present, skip download to avoid repeated
+    # extraction/move overhead on slower filesystems (e.g. WSL mounted drives).
+    has_sbd = all(
+        os.path.exists(os.path.join(data_dir, p))
+        for p in ['img', 'cls', 'inst', 'train.txt', 'val.txt']
+    )
+    train_download = not has_sbd
+
     # Φόρτωση training set
     train_dataset = SBDSegmentation(
         root=data_dir,
         image_set='train',
-        download=True,
+        download=train_download,
         image_size=image_size
     )
     
@@ -83,7 +105,7 @@ def load_sbd_dataset(data_dir='./data', batch_size=8, num_workers=2, image_size=
     val_dataset = SBDSegmentation(
         root=data_dir,
         image_set='val',
-        download=True,
+        download=False,
         image_size=image_size
     )
     
