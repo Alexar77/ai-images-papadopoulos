@@ -142,7 +142,7 @@ def run_segmentation_experiment(experiment_name, hyperparameters,
 
 def main():
     parser = argparse.ArgumentParser(description='SBD Semantic Segmentation')
-    parser.add_argument('--epochs', type=int, default=10, help='Number of epochs')
+    parser.add_argument('--epochs', type=int, default=5, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=8, help='Batch size')
     parser.add_argument('--num_workers', type=int, default=2, help='DataLoader workers')
     parser.add_argument('--image_size', type=int, default=224, help='Image size')
