@@ -180,7 +180,7 @@ def main():
 
     base_config = {
         'weight_decay': 1e-4,
-        'scheduler': 'step',
+        'scheduler': 'cosine',
         'base_channels': 64,
         'early_stopping_patience': 4,
         'background_weight': args.background_weight
@@ -207,7 +207,7 @@ def main():
     print("\n" + "=" * 80)
     print("ΣΕΙΡΑ ΠΕΙΡΑΜΑΤΩΝ 2: ΣΥΓΚΡΙΣΗ LEARNING RATES (2 τιμές)")
     print("=" * 80)
-    for lr in [0.0003, 0.001]:
+    for lr in [0.0001, 0.001]:
         config = base_config.copy()
         config['optimizer'] = 'adamw'
         config['learning_rate'] = lr
